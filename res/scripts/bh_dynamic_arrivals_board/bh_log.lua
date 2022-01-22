@@ -1,4 +1,4 @@
-local debugMode = false
+local debugMode = true
 
 return {
   logObject = function(name, object)
