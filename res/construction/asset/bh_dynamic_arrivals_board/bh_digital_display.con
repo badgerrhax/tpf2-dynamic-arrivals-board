@@ -23,31 +23,6 @@ local function joinTables(t, t2)
 	return ret
 end
 
-local locations = joinTables({ "Empty" }, require "bh_metrolink_station_list")
-
-local function makeDestString(p)
-	return p == 0 and "" or locations[p+1]
-end
-
-local function makeTimeString(t)
-	return t == 0 and "" or tostring(t) .. " min"
-end
-
-local function makeClockString(h, m, s)
-	if h == 0 or m == 0 or s == 0 then
-		return ""
-	end
-	return string.format("%02d", h - 1) .. ":" .. string.format("%02d", m - 1) .. ":" .. string.format("%02d", s - 1)
-end
-
-local function numberList(start, finish)
-	local t = { "Empty" }
-	for i = start, finish do
-		t[#t+1] = tostring(i)
-	end
-	return t
-end
-
 local function makeParams()
 	local params = {}
 
@@ -56,55 +31,6 @@ local function makeParams()
 		name = _("Style"),
 		uiType = "ICON_BUTTON",
 		values = utils.parameterIcons(styles)
-	}
-
-	params[#params+1] = {
-		key = configKey("line1_dest"),
-		name = _("First Line Dest"),
-		uiType = "COMBOBOX",
-		values = locations,
-	}
-
-	params[#params+1] = {
-		key = configKey("line1_time"),
-		name = _("First Line Time"),
-		uiType = "COMBOBOX",
-		values = numberList(1, 24),
-	}
-
-	params[#params+1] = {
-		key = configKey("line2_dest"),
-		name = _("Second Line Dest"),
-		uiType = "COMBOBOX",
-		values = locations,
-	}
-
-	params[#params+1] = {
-		key = configKey("line2_time"),
-		name = _("Second Line Time"),
-		uiType = "COMBOBOX",
-		values = numberList(1, 24),
-	}
-
-	params[#params+1] = {
-		key = configKey("time_hours"),
-		name = _("Clock Hour"),
-		uiType = "COMBOBOX",
-		values = numberList(0, 23)
-	}
-
-	params[#params+1] = {
-		key = configKey("time_mins"),
-		name = _("Clock Minute"),
-		uiType = "COMBOBOX",
-		values = numberList(0, 59)
-	}
-
-	params[#params+1] = {
-		key = configKey("time_seconds"),
-		name = _("Clock Second"),
-		uiType = "COMBOBOX",
-		values = numberList(0, 59)
 	}
 
 	utils.makeRotateParams(params, configKey)
@@ -147,12 +73,12 @@ function data()
         id = model, transf = constructionutil.rotateTransf(params, transf.rotZYXTransl(rotate, offset))
       }
 
-			local labelValues = { 
-				makeDestString(params[configKey("line1_dest")]),
-				makeDestString(params[configKey("line2_dest")]),
-				makeClockString(params[configKey("time_hours")], params[configKey("time_mins")], params[configKey("time_seconds")]),
-				makeTimeString(params[configKey("line1_time")]),
-				makeTimeString(params[configKey("line2_time")]),
+			local labelValues = {
+				params[configKey("line1_dest")],
+				params[configKey("line2_dest")],
+				params[configKey("time_string")],
+				params[configKey("line1_time")],
+				params[configKey("line2_time")],
 			}
 
 			result.labelText = {

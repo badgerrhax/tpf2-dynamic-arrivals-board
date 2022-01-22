@@ -1,7 +1,36 @@
+local vec3 = require "vec3"
+
 local persistent_state = {
   world_time = 0,
   placed_signs = {}
 }
+
+local function transformVec(vec, matrix)
+  return {
+    x = vec.x * matrix[1] + vec.y * matrix[5] + vec.z * matrix[9] + matrix[13],
+    y = vec.x * matrix[2] + vec.y * matrix[6] + vec.z * matrix[10] + matrix[14],
+    z = vec.x * matrix[3] + vec.y * matrix[7] + vec.z * matrix[11] + matrix[15]
+}
+end
+
+local function getClosestStation(transform)
+  local componentType = api.type.ComponentType.STATION
+  local position = transformVec(vec3.new(0, 0, 0), transform)
+  local radius = 100
+
+  local box = api.type.Box3.new(
+    api.type.Vec3f.new(position.x - radius, position.y - radius, -9999),
+    api.type.Vec3f.new(position.x + radius, position.y + radius, 9999)
+  )
+  local results = {}
+  api.engine.system.octreeSystem.findIntersectingEntities(box, function(entity, boundingVolume)
+    if entity and api.engine.getComponent(entity, componentType) then
+      results[#results+1] = entity
+    end
+  end)
+
+  return results
+end
 
 function data()
 return {
@@ -30,56 +59,43 @@ update = function()
 
         for k, _ in pairs(persistent_state.placed_signs) do
           local sign = api.engine.getComponent(k, api.type.ComponentType.CONSTRUCTION)
-          local newCon = api.type.SimpleProposal.ConstructionEntity.new()
+          if sign then
+            local newCon = api.type.SimpleProposal.ConstructionEntity.new()
 
-          debugPrint(sign)
+            --debugPrint(sign)
 
-          local newParams = {
-            bh_digital_display_line1_dest = 0,
-            bh_digital_display_line1_time = 0,
-            bh_digital_display_line2_dest = 0,
-            bh_digital_display_line2_time = 0,
-            bh_digital_display_style = 0,
-            bh_digital_display_x_offset_major = 10,
-            bh_digital_display_x_offset_minor = 19,
-            bh_digital_display_x_rotate = 0,
-            bh_digital_display_x_rotate_fine = 44,
-            bh_digital_display_y_offset_major = 10,
-            bh_digital_display_y_offset_minor = 19,
-            bh_digital_display_y_rotate_fine = 44,
-            bh_digital_display_z_offset_major = 10,
-            bh_digital_display_z_offset_minor = 19,
-            bh_digital_display_z_rotate_fine = 44,
-            paramX = 0,
-            paramY = 0,
-            seed = sign.params.seed + 1,
-            year = 2030,
-            bh_digital_display_time_seconds = (time % 60) + 1,
-            bh_digital_display_time_mins = ((time / 60) % 60) + 1,
-            bh_digital_display_time_hours = ((time / 60 / 60) % 24) + 1,
-          }
- 
-          newCon.fileName = sign.fileName
-          newCon.params = newParams
-          newCon.transf = sign.transf
-          newCon.playerEntity = api.engine.util.getPlayer()
-
-          debugPrint(newCon)
-
-          local proposal = api.type.SimpleProposal.new()
-          proposal.constructionsToAdd[1] = newCon
-          proposal.constructionsToRemove = { k }
-          --proposal.old2new = { k = 0 }
-
-          -- todo replace with new id
-          --persistent_state.placed_signs[k] = nil
-
-          api.cmd.sendCommand(
-            api.cmd.make.buildProposal(proposal, api.type.Context:new(), true),
-            function(result, success)
-              debugPrint({ buildProposal = {result = result, success = success }})
+            local newParams = {}
+            for oldKey, oldVal in pairs(sign.params) do
+              newParams[oldKey] = oldVal
             end
-          )
+
+            newParams.bh_digital_display_time_string = clockString
+            newParams.bh_digital_display_line1_dest = "test"
+            newParams.bh_digital_display_line1_time = "5min"
+            newParams.bh_digital_display_line2_dest = "test 2"
+            newParams.bh_digital_display_line2_time = "10min"
+            newParams.seed = sign.params.seed + 1
+
+            newCon.fileName = sign.fileName
+            newCon.params = newParams
+            newCon.transf = sign.transf
+            newCon.playerEntity = api.engine.util.getPlayer()
+
+            --debugPrint(newCon)
+
+            -- possible optimisation: build the proposal of multiple construction updates and send a single command after the loop
+            local proposal = api.type.SimpleProposal.new()
+            proposal.constructionsToAdd[1] = newCon
+            proposal.constructionsToRemove = { k }
+
+            -- simply changing params on a construction doesn't seem to change the entity id, yay!
+            api.cmd.sendCommand(
+              api.cmd.make.buildProposal(proposal, api.type.Context:new(), true)--[[,
+              function(result, success)
+                debugPrint({ buildProposal = {result = result, success = success }})
+              end]]
+            )
+          end
         end
       end
   else
@@ -92,6 +108,16 @@ handleEvent = function(src, id, name, param)
     debugPrint({ handleEvent = { src, id, name, param }})
   end]]
   if name == "add_display_construction" then
+    -- when we add the sign we should look for a nearby station
+    -- and add data about that so we can use it to display something during the update
+    xpcall(function()
+      local sign = api.engine.getComponent(param, api.type.ComponentType.CONSTRUCTION)
+      if sign then
+        local nearbyStations = getClosestStation(sign.transf)
+        debugPrint(nearbyStations)
+      end
+    end, function(err) print(err) end)
+
     persistent_state.placed_signs[param] = true
     print("Player created sign ID " .. tostring(param) .. ". Now managing the following signs:")
     debugPrint(persistent_state.placed_signs)
