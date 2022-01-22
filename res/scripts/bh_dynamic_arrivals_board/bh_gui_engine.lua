@@ -7,7 +7,7 @@ end
 
 local function handleEvent(id, name, param)
   if name == 'builder.apply' or name == 'select' then
-    debugPrint({ guiHandleEvent = { id, name, param }})
+    --debugPrint({ guiHandleEvent = { id, name, param }})
     local state = stateManager.getState()
 
     if name == 'builder.apply' then
