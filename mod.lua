@@ -25,3 +25,4 @@ function data()
 		end
  }
 end
+-- TODO - something in this mod crashes when starting a new game... something about savestate between two states not matching..

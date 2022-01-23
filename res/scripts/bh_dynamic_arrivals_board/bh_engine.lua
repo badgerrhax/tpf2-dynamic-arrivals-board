@@ -102,6 +102,91 @@ local function getLineStopAndTerminusStop(lineStops, stationTerminal)
   }
 end
 
+--[[ 
+  returns an array of tables that look like this:
+  {
+    terminalId = n,
+    destination = stationGroup
+    arrivalTime = milliseconds
+  }
+  sorted in order of arrivalTime (earliest first)
+]]
+local function getNextArrivals(stationTerminal, numArrivals)
+  -- despite how many we want to return, we actually need to look at every vehicle on every line stopping here before we can sort and trim
+  local arrivals = {}
+
+  if not stationTerminal then return arrivals end
+
+  local lineStops
+  if stationTerminal.terminal ~= nil then
+    lineStops = api.engine.system.lineSystem.getLineStopsForTerminal(stationTerminal.station, stationTerminal.terminal)
+  else
+    lineStops = api.engine.system.lineSystem.getLineStopsForStation(stationTerminal.station)
+  end
+
+  if lineStops then
+    --print("The following lines stop at this terminal:")
+    for _, line in pairs(lineStops) do
+      -- caching here is premature
+      --if not lineDataCache[line] then
+        --local lineName = api.engine.getComponent(line, api.type.ComponentType.NAME)
+        --[[if lineName then
+          print(lineName.name)
+        end
+        print("Line data:")]]
+        local lineData = api.engine.getComponent(line, api.type.ComponentType.LINE)
+        --debugPrint(lineData)
+        --lineDataCache[line] = lineData
+      --end
+
+      --local lineData = lineDataCache[line]
+      
+      -- TODO - this needs to be smarter and look at the whole line regardless of current terminal (because we might be getting all station lines,
+      -- or the line might stop at the same terminal in both directions).
+      -- so do something smarter (expensive...) with the list of stops so we can calculate the terminus for all occurrences of any line at any terminal at this station
+      --[[local importantLineStops = getLineStopAndTerminusStop(lineData.stops, v.stationTerminal)
+
+      -- then for each of the terminals the new calc returns (a lineStopIndex and terminal ID for each time the line stops at this station)
+      -- we need to check the vehicle's ETA to that terminal in the vehicle loop below (refactor into function)
+
+      local terminusName = api.engine.getComponent(importantLineStops.lineTerminusStop.stationGroup, api.type.ComponentType.NAME)
+      if terminusName then
+        terminusName = terminusName.name
+      end]]
+      --debugPrint({ line = line, terminal = v.stationTerminal.terminal, importantLineStops = importantLineStops, terminusFromThisTerminal = terminusName })
+
+      --print("Vehicles on line:")
+      local vehicles = api.engine.system.transportVehicleSystem.getLineVehicles(line)
+      --debugPrint(vehicles)
+      if vehicles then
+        for _, veh in ipairs(vehicles) do
+          if not vehicleDataCache[veh] then
+            local vehicle = api.engine.getComponent(veh, api.type.ComponentType.TRANSPORT_VEHICLE)
+            --debugPrint(vehicle)
+            vehicleDataCache[veh] = vehicle
+          end
+
+          -- which 2 vehicles on this line are closest to this stop? (if there is one vehicle, it will be the same one twice, and we will have to add an entire line cycle to its ETA)
+          local vehicle = vehicleDataCache[veh]
+          local lineDuration = 0
+          for _, sectionTime in ipairs(vehicle.sectionTimes) do
+            lineDuration = lineDuration + sectionTime
+          end
+          local stopsAway = (importantLineStops.stationIndex - vehicle.stopIndex - 1) % #lineData.stops
+          local expectedDepartureTime = vehicle.lineStopDepartures[importantLineStops.stationIndex] + math.ceil(lineDuration) * 1000
+          local expectedSecondsFromNow = math.ceil((expectedDepartureTime - time) / 1000)
+          local expectedMins = math.ceil(expectedSecondsFromNow / 60) + 1
+          print("vehicle " .. tostring(veh) .. " on line " .. tostring(line) .. " is " .. stopsAway .. " stops away. (ETA " .. expectedMins .. " mins " .. expectedSecondsFromNow % 60 .. " secs)")
+
+          -- hack to get something displaying for test purposes
+          --firstArrival = { dest = terminusName, eta = expectedMins }
+          --secondArrival = { dest = terminusName, eta = expectedMins + math.ceil(lineDuration / 60) }
+        end
+      end
+    end
+  end
+end
+
 local function update()
   local state = stateManager.loadState()
   local time = api.engine.getComponent(api.engine.util.getWorld(), api.type.ComponentType.GAME_TIME).gameTime
@@ -111,6 +196,12 @@ local function update()
         state.world_time = clock_time
         local clockString = string.format("%02d:%02d:%02d", (clock_time / 60 / 60) % 24, (clock_time / 60) % 60, clock_time % 60)
         print(clockString)
+
+
+        -- some optimisation ideas noting here while i think of them.
+        -- * add debugging info to count how many times various loops are entered per update so i know how much is too much
+        -- * build the proposal of multiple construction updates and send a single command after the loop
+        -- * gather placed_signs into a map by station entity, so multiple signs at the same station can do a single station eta update and pass out the info to each sign as needed
 
         -- prevent multiple requests for the same data in this single update.
         -- we do need to request these per update tho because the player might edit the lines / add / remove vehicles
@@ -180,11 +271,11 @@ local function update()
                       local expectedDepartureTime = vehicle.lineStopDepartures[importantLineStops.stationIndex] + math.ceil(lineDuration) * 1000
                       local expectedSecondsFromNow = math.ceil((expectedDepartureTime - time) / 1000)
                       local expectedMins = math.ceil(expectedSecondsFromNow / 60) + 1
-                      --print("vehicle " .. tostring(veh) .. " on line " .. tostring(line) .. "is " .. stopsAway .. " stops away. (ETA " .. expectedMins .. " mins " .. expectedSecondsFromNow % 60 .. " secs)")
+                      print("vehicle " .. tostring(veh) .. " on line " .. tostring(line) .. " is " .. stopsAway .. " stops away. (ETA " .. expectedMins .. " mins " .. expectedSecondsFromNow % 60 .. " secs)")
 
                       -- hack to get something displaying for test purposes
-                      firstArrival = { dest = terminusName, eta = expectedMins }
-                      secondArrival = { dest = terminusName, eta = expectedMins + math.ceil(lineDuration / 60) }
+                      --firstArrival = { dest = terminusName, eta = expectedMins }
+                      --secondArrival = { dest = terminusName, eta = expectedMins + math.ceil(lineDuration / 60) }
                     end
                   end
                 end
@@ -219,12 +310,12 @@ local function update()
 
             --debugPrint(newCon)
 
-            -- possible optimisation: build the proposal of multiple construction updates and send a single command after the loop
+            
             local proposal = api.type.SimpleProposal.new()
             proposal.constructionsToAdd[1] = newCon
             proposal.constructionsToRemove = { k }
 
-            -- simply changing params on a construction doesn't seem to change the entity id, yay!
+            -- changing params on a construction doesn't seem to change the entity id which indicates it doesn't completely "replace" it but i don't know how expensive this command actually is...
             api.cmd.sendCommand(api.cmd.make.buildProposal(proposal, api.type.Context:new(), true))
           end
         end
