@@ -1,5 +1,6 @@
 -- State is pretty much read-only here
 local stateManager = require "bh_dynamic_arrivals_board/bh_state_manager"
+local construction = require "bh_dynamic_arrivals_board/bh_construction_hooks"
 
 local function sendScriptEvent(id, msg, param)
   api.cmd.sendCommand(api.cmd.make.sendScriptEvent("bh_gui_engine.lua", id, msg, param))
@@ -9,6 +10,7 @@ local function handleEvent(id, name, param)
   if name == 'builder.apply' or name == 'select' then
     --debugPrint({ guiHandleEvent = { id, name, param }})
     local state = stateManager.getState()
+    debugPrint({ guiConstructions = construction.getRegisteredConstructions() })
 
     if name == 'builder.apply' then
       if param and param.proposal then
