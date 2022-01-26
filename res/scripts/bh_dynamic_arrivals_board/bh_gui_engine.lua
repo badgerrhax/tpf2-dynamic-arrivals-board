@@ -8,14 +8,12 @@ end
 
 local function handleEvent(id, name, param)
   if name == 'builder.apply' or name == 'select' then
-    --debugPrint({ guiHandleEvent = { id, name, param }})
     local state = stateManager.getState()
-    debugPrint({ guiConstructions = construction.getRegisteredConstructions() })
 
     if name == 'builder.apply' then
       if param and param.proposal then
         local toAdd = param.proposal.toAdd
-        if toAdd and toAdd[1] and toAdd[1].fileName == "asset/bh_dynamic_arrivals_board/bh_digital_display.con" then
+        if toAdd and toAdd[1] and construction.getRegisteredConstructions()[toAdd[1].fileName] then
           if param.result and param.result[1] then
             sendScriptEvent(id, "add_display_construction", param.result[1])
           end

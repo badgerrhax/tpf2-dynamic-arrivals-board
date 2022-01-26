@@ -8,7 +8,7 @@ local function getClosestTerminal(transform)
   --print("getClosestTerminal")
   local componentType = api.type.ComponentType.STATION
   local position = bhm.transformVec(vec3.new(0, 0, 0), transform)
-  local radius = 10
+  local radius = 50
   --debugPrint({ position = position })
 
   local box = api.type.Box3.new(
@@ -35,7 +35,7 @@ local function getClosestTerminal(transform)
       if station then
         local stationGroup = api.engine.system.stationGroupSystem.getStationGroup(entity)
         local name = api.engine.getComponent(stationGroup, api.type.ComponentType.NAME)
-        debugPrint(name)
+        --debugPrint(name)
         --debugPrint(station)
         --print("-- end of station data --")
 
@@ -52,14 +52,14 @@ local function getClosestTerminal(transform)
               closestTerminal = k - 1
               closestStationGroup = stationGroup
             end
-            print("Terminal " .. tostring(k) .. " is " .. tostring(distance) .. "m away")
+            --print("Terminal " .. tostring(k) .. " is " .. tostring(distance) .. "m away")
           end
         end
     end
   end
 
   if closestEntity then
-    return { station = closestEntity, stationGroup = closestStationGroup, terminal = closestTerminal }
+    return { station = closestEntity, stationGroup = closestStationGroup, terminal = closestTerminal, auto = true }
   else
     return nil
   end
@@ -192,18 +192,22 @@ local function formatClockString(clock_time)
   return string.format("%02d:%02d:%02d", (clock_time / 60 / 60) % 24, (clock_time / 60) % 60, clock_time % 60)
 end
 
+local function formatClockStringHHMM(clock_time)
+  return string.format("%02d:%02d", (clock_time / 60 / 60) % 24, (clock_time / 60) % 60)
+end
+
 local function formatArrivals(arrivals, time)
   local ret = {}
 
   if arrivals then
     for i, arrival in ipairs(arrivals) do
-      local entry = { dest = "", etaMinsString = "", arrivalTimeString = "" }
+      local entry = { dest = "", etaMinsString = "", arrivalTimeString = "", arrivalTerminal = arrival.terminalId }
       local terminusName = api.engine.getComponent(arrival.destination, api.type.ComponentType.NAME)
       if terminusName then
         entry.dest = terminusName.name
       end
 
-      entry.arrivalTimeString = formatClockString(time / 1000)
+      entry.arrivalTimeString = formatClockStringHHMM(arrival.arrivalTime / 1000)
       local expectedSecondsFromNow = math.ceil((arrival.arrivalTime - time) / 1000)
       local expectedMins = math.ceil(expectedSecondsFromNow / 60)
       if expectedMins > 0 then
@@ -220,6 +224,20 @@ local function formatArrivals(arrivals, time)
   return ret
 end
 
+local function configureSignLink(sign, state, config)
+  local stationTerminal = getClosestTerminal(sign.transf)
+
+  if stationTerminal then
+    debugPrint({ ClosestTerminal = stationTerminal })
+    if not config.singleTerminal then
+      stationTerminal.terminal = nil
+    end
+    state.stationTerminal = stationTerminal
+  end
+
+  state.linked = true
+end
+
 local function update()
   local state = stateManager.loadState()
   local time = api.engine.getComponent(api.engine.util.getWorld(), api.type.ComponentType.GAME_TIME).gameTime
@@ -229,40 +247,44 @@ local function update()
         state.world_time = clock_time
         local clockString = formatClockString(clock_time)
         print(clockString)
-        debugPrint({ engineConstructions = construction.getRegisteredConstructions() })
 
         -- some optimisation ideas noting here while i think of them.
         -- * add debugging info to count how many times various loops are entered per update so i know how much is too much
-        -- * build the proposal of multiple construction updates and send a single command after the loop
-        -- * gather placed_signs into a map by station entity, so multiple signs at the same station can do a single station eta update and pass out the info to each sign as needed
+        -- * (maybe not needed after below) build the proposal of multiple construction updates and send a single command after the loop
+        -- * move station / line info gathering into less frequent coroutine
         -- prevent multiple requests for the same data in this single update.
         -- we do need to request these per update tho because the player might edit the lines / add / remove vehicles
 
         for k, v in pairs(state.placed_signs) do
           local sign = api.engine.getComponent(k, api.type.ComponentType.CONSTRUCTION)
           if sign then
-            if not v.linked then
-              local stationTerminal = getClosestTerminal(sign.transf)
-              if stationTerminal then
-                debugPrint({ ClosestTerminal = stationTerminal })
-                v.stationTerminal = stationTerminal
-              else
-                print("Sign placed too far from a station - will only display the clock.")
-              end
+            local config = construction.getRegisteredConstructions()[sign.fileName]
+            if not config then config = {} end
+            if not config.labelParamPrefix then config.labelParamPrefix = "" end
+            local function param(name) return config.labelParamPrefix .. name end
 
-              v.linked = true
+            -- update the linked terminal as it might have been changed by the player in the construction params
+            local terminalOverride = sign.params[param("terminal_override")] or 0
+            if v.stationTerminal and not v.stationTerminal.auto and terminalOverride == 0 then
+              -- player may have changed the construction from a specific terminal to auto, so we need to recalculate the closest one
+              v.linked = false
             end
-            
-            local arrivals
 
-            if v.stationTerminal then
+            if not v.linked then
+              configureSignLink(sign, v, config)
+            end
+
+            if v.stationTerminal and terminalOverride > 0 then
+              v.stationTerminal.terminal = terminalOverride - 1
+              v.stationTerminal.auto = false
+            end
+
+            local arrivals = {}
+
+            if v.stationTerminal and config.maxArrivals > 0 then
               -- i could do this getNextArrivals logic less frequently too, as the only thing that uses the current time is the formatting below
-              local nextArrivals = getNextArrivals(v.stationTerminal, 2)
+              local nextArrivals = getNextArrivals(v.stationTerminal, config.maxArrivals)
               arrivals = formatArrivals(nextArrivals, time)
-
-              if not nextArrivals or #nextArrivals == 0 then
-                print("No arrivals for this terminal - will only display the clock")
-              end
             end
 
             local newCon = api.type.SimpleProposal.ConstructionEntity.new()
@@ -274,12 +296,23 @@ local function update()
               newParams[oldKey] = oldVal
             end
 
-            newParams.bh_digital_display_time_string = clockString
+            if config.clock then
+              newParams[param("time_string")] = clockString
+              newParams[param("game_time")] = clock_time
+            end
 
-            newParams.bh_digital_display_line1_dest = arrivals[1].dest
-            newParams.bh_digital_display_line1_time = arrivals[1].etaMinsString
-            newParams.bh_digital_display_line2_dest = arrivals[2].dest
-            newParams.bh_digital_display_line2_time = arrivals[2].etaMinsString
+            newParams[param("num_arrivals")] = #arrivals
+
+            for i, a in ipairs(arrivals) do
+              local paramName = ""
+              
+              paramName = paramName .. "arrival_" .. i .. "_"
+              newParams[param(paramName .. "dest")] = a.dest
+              newParams[param(paramName .. "time")] = config.absoluteArrivalTime and a.arrivalTimeString or a.etaMinsString
+              if not config.singleTerminal then
+                newParams[param(paramName .. "terminal")] = a.arrivalTerminal + 1
+              end
+            end
 
             newParams.seed = sign.params.seed + 1
 
@@ -308,13 +341,13 @@ local function handleEvent(src, id, name, param)
   if name == "add_display_construction" then
     local state = stateManager.getState()
     state.placed_signs[param] = {}
-    print("Player created sign ID " .. tostring(param) .. ". Now managing the following signs:")
-    debugPrint(state.placed_signs)
+    --print("Player created sign ID " .. tostring(param) .. ". Now managing the following signs:")
+    --debugPrint(state.placed_signs)
   elseif name == "remove_display_construction" then
     local state = stateManager.getState()
     state.placed_signs[param] = nil
-    print("Player removed sign ID " .. tostring(param) .. ". Now managing the following signs:")
-    debugPrint(state.placed_signs)
+    --print("Player removed sign ID " .. tostring(param) .. ". Now managing the following signs:")
+    --debugPrint(state.placed_signs)
   end
 end
 

@@ -10,5 +10,5 @@ end
 
 return {
   registerConstruction = registerConstruction,
-  getRegisteredConstructions = getRegisteredConstructions
+  getRegisteredConstructions = getRegisteredConstructions,
 }

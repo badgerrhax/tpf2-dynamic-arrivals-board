@@ -2,27 +2,12 @@ local constructionutil = require "constructionutil"
 local transf = require "transf"
 local utils = require "bh_dynamic_arrivals_board/bh_utils"
 
-local styles = { "digital_display", "digital_display_nopole", "digital_display_floating" }
-
 local function configKey(name)
-	return "bh_digital_display_" .. name
-end
-
-local function mdl(model)
-	return "bh_dynamic_arrivals_board/bh_manchester_metrolink_" .. model .. ".mdl"
+	return "bh_summary_display_" .. name
 end
 
 local function makeParams()
 	local params = {}
-
-	params[#params+1] = {
-		key = configKey("style"),
-		name = _("Style"),
-		uiType = "ICON_BUTTON",
-		values = utils.parameterIcons(styles)
-	}
-
-	utils.makeTerminalOverrideParam(params, configKey)
 
 	utils.makeRotateParams(params, configKey)
 	utils.makeOffsetParams(params, configKey)
@@ -35,8 +20,8 @@ function data()
 	return { 
 		type = "ASSET_TRACK",
 		description = {
-			name = _("Dynamic Arrivals Board (Single Terminal, 2 Arrivals)"),
-			description = _("A digital display showing approaching trains to a single terminal"),
+			name = _("Dynamic Arrivals Board (Station Summary"),
+			description = _("A digital display showing approaching trains to all terminals at the nearest station"),
 			icon = "ui/construction/asset/bh_dynamic_arrivals_board/bh_digital_display_construction@2x.tga"
 		},
 		availability = {},
@@ -58,24 +43,33 @@ function data()
 			offset.y = offset.y - 4.95
 			offset.z = offset.z + 0.54
 
-			local style = styles[params[configKey("style")]+1]
-      local model = mdl(style)
+      local model = "bh_dynamic_arrivals_board/bh_dynamic_tall_board.mdl"
       result.models[#result.models + 1] = {
         id = model, transf = constructionutil.rotateTransf(params, transf.rotZYXTransl(rotate, offset))
       }
 
-			-- must be prepared for the params to have not been set (if there are no lines / arrivals / whatever other reason)
-			-- so default to empty strings
-			local labelValues = {
-				params[configKey("arrival_1_dest")] or "",
-				params[configKey("arrival_2_dest")] or "",
-				params[configKey("time_string")] or "",
-				params[configKey("arrival_1_time")] or "",
-				params[configKey("arrival_2_time")] or "",
-			}
+			local labelValues = {}
+			for i = 1, 29 do
+				labelValues[i] = ""
+			end
+
+			labelValues[1] = "Destination"
+			labelValues[2] = "Plat"
+			labelValues[3] = "Time"
+			labelValues[28] = params[configKey("time_string")]
+
+			local numArrivals = params[configKey("num_arrivals")] or 0
+			if numArrivals > 0 then
+				for i = 1, numArrivals do
+					local labelIndexStart = 3 * i + 1
+					labelValues[labelIndexStart] = params[configKey("arrival_" .. i .. "_dest")]
+					labelValues[labelIndexStart+1] = tostring(params[configKey("arrival_" .. i .. "_terminal")])
+					labelValues[labelIndexStart+2] = params[configKey("arrival_" .. i .. "_time")]
+				end
+			end
 
 			result.labelText = {
-				[#result.models-1] = utils.joinTables(labelValues, labelValues) -- our sign is 2-sided with same values on both
+				[#result.models-1] = labelValues
 			}
 
 			result.terrainAlignmentLists = { { type = "EQUAL", faces = {} }}

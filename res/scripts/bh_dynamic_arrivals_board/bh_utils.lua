@@ -183,12 +183,43 @@ local function readRotateParams(params, configKeyFunc)
 	return { x = xBig + xFine, y = yFine, z = zFine }
 end
 
+local function makeTerminalOverrideParam(params, configKeyFunc)
+	local terminals = {}
+	for i = 1, 25 do -- what's the most terminals a station might have?
+		if i == 1 then
+			terminals[i] = "Auto"
+		else
+			terminals[i] = tostring(i-1)
+		end
+	end
+
+	params[#params+1] = {
+		key = configKeyFunc("terminal_override"),
+		name = _("Terminal"),
+		values = terminals,
+		uiType = "COMBOBOX"
+	}
+
+	return params
+end
+
 local function parameterIcons(m)
 	local icons = {}
-	for i, v in ipairs(m) do
-		icons[#icons+1] = "ui/parameters/bh_metrolink_station/bh_" .. v .. ".tga"
+	for _, v in ipairs(m) do
+		icons[#icons+1] = "ui/parameters/bh_dynamic_arrivals_board/bh_" .. v .. ".tga"
 	end
 	return icons
+end
+
+local function joinTables(t, t2)
+	local ret = {}
+	for _, v in ipairs(t) do
+		ret[#ret+1] = v
+	end
+	for _, v in ipairs(t2) do
+		ret[#ret+1] = v
+	end
+	return ret
 end
 
 return {
@@ -198,5 +229,7 @@ return {
 	readScaleParams = readScaleParams,
 	makeRotateParams = makeRotateParams,
 	readRotateParams = readRotateParams,
+	makeTerminalOverrideParam = makeTerminalOverrideParam,
 	parameterIcons = parameterIcons,
+	joinTables = joinTables
 }
