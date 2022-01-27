@@ -42,7 +42,7 @@ display construction and it will manage its display updates when placed in game.
 
 [b]Please report any bugs with this mod so I can try to address them.[/b]
 			]],
-			tags = { "British", "uk", "train" },
+			tags = { "Track Asset", "Misc" },
 			visible = true,
 			authors = {
 				{
