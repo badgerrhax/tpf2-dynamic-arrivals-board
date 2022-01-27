@@ -3,6 +3,9 @@ local stateManager = require "bh_dynamic_arrivals_board/bh_state_manager"
 local engine = require "bh_dynamic_arrivals_board/bh_engine"
 local guiEngine = require "bh_dynamic_arrivals_board/bh_gui_engine"
 
+-- ensure state default structure matches across all states during load / new game
+stateManager.ensureState()
+
 local function errorHandler(error)
   print(error)
 end

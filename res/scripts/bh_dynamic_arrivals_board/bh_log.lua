@@ -1,16 +1,16 @@
 local debugMode = true
 
 return {
-  logObject = function(name, object)
+  object = function(name, object)
     if debugMode then
-      print("BH -------" .. name .. " START -------")
+      print("BH ------- " .. name .. " START -------")
       debugPrint(object)
-      print("BH -------" .. name .. " END -------")
+      print("BH ------- " .. name .. " END -------")
     end
   end,
-  logCall = function(name)
+  message = function(msg)
     if debugMode then
-      print("BH -------" .. name .. " CALLED -------")
+      print("BH ------ " .. msg)
     end
-  end
+  end,
 }

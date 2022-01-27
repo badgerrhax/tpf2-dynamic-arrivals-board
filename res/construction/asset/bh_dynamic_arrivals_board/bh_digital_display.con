@@ -35,8 +35,8 @@ function data()
 	return { 
 		type = "ASSET_TRACK",
 		description = {
-			name = _("Dynamic Arrivals Board (Single Terminal, 2 Arrivals)"),
-			description = _("A digital display showing approaching trains to a single terminal"),
+			name = _("Dynamic Arrivals Single Terminal"),
+			description = _("A digital display showing the next two approaching trains to a single terminal"),
 			icon = "ui/construction/asset/bh_dynamic_arrivals_board/bh_digital_display_construction@2x.tga"
 		},
 		availability = {},

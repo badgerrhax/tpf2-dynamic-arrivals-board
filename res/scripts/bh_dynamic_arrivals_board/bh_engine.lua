@@ -4,12 +4,11 @@ local bhm = require "bh_dynamic_arrivals_board/bh_maths"
 local stateManager = require "bh_dynamic_arrivals_board/bh_state_manager"
 local construction = require "bh_dynamic_arrivals_board/bh_construction_hooks"
 
+local log = require "bh_dynamic_arrivals_board/bh_log"
+
 local function getClosestTerminal(transform)
-  --print("getClosestTerminal")
-  local componentType = api.type.ComponentType.STATION
   local position = bhm.transformVec(vec3.new(0, 0, 0), transform)
   local radius = 50
-  --debugPrint({ position = position })
 
   local box = api.type.Box3.new(
     api.type.Vec3f.new(position.x - radius, position.y - radius, -9999),
@@ -17,13 +16,10 @@ local function getClosestTerminal(transform)
   )
   local results = {}
   api.engine.system.octreeSystem.findIntersectingEntities(box, function(entity, boundingVolume)
-    if entity and api.engine.getComponent(entity, componentType) then
+    if entity and api.engine.getComponent(entity, api.type.ComponentType.STATION) then
       results[#results+1] = entity
     end
   end)
-
-  --debugPrint(results)
-  --return results
 
   local shortestDistance = 9999
   local closestEntity
@@ -31,18 +27,13 @@ local function getClosestTerminal(transform)
   local closestStationGroup
 
   for _, entity in ipairs(results) do
-    local station = api.engine.getComponent(entity, componentType)
+    local station = api.engine.getComponent(entity, api.type.ComponentType.STATION)
       if station then
         local stationGroup = api.engine.system.stationGroupSystem.getStationGroup(entity)
-        local name = api.engine.getComponent(stationGroup, api.type.ComponentType.NAME)
-        --debugPrint(name)
-        --debugPrint(station)
-        --print("-- end of station data --")
 
         for k, v in pairs(station.terminals) do
-          --print(v.vehicleNodeId.entity)
+          -- TODO - use positions of the person nodes on the termainl or something, as using vehicle node alone is prone to incorrect calcs (esp with varying length platforms)
           local nodeData = api.engine.getComponent(v.vehicleNodeId.entity, api.type.ComponentType.BASE_NODE)
-          --debugPrint(nodeData)
 
           if nodeData then
             local distance = vec3.distance(position, nodeData.position)
@@ -52,7 +43,7 @@ local function getClosestTerminal(transform)
               closestTerminal = k - 1
               closestStationGroup = stationGroup
             end
-            --print("Terminal " .. tostring(k) .. " is " .. tostring(distance) .. "m away")
+            log.message("Terminal " .. tostring(k) .. " is " .. tostring(distance) .. "m away")
           end
         end
     end
@@ -127,7 +118,6 @@ local function getNextArrivals(stationTerminal, numArrivals)
     end
     
     for _, line in pairs(uniqueLines) do
-      --print("line " .. line)
       local lineData = api.engine.getComponent(line, api.type.ComponentType.LINE)
       if lineData then
         local lineTermini = calculateLineStopTermini(lineData) -- this will eventually be done in a slower engine loop to save performance
@@ -145,7 +135,6 @@ local function getNextArrivals(stationTerminal, numArrivals)
             local vehicle = api.engine.getComponent(veh, api.type.ComponentType.TRANSPORT_VEHICLE)
             if vehicle then
               local lineDuration = 0
-              --debugPrint({ vehicleId = veh, times = vehicle.sectionTimes, deps = vehicle.lineStopDepartures })
               for _, sectionTime in ipairs(vehicle.sectionTimes) do
                 lineDuration = lineDuration + sectionTime
               end
@@ -228,7 +217,7 @@ local function configureSignLink(sign, state, config)
   local stationTerminal = getClosestTerminal(sign.transf)
 
   if stationTerminal then
-    debugPrint({ ClosestTerminal = stationTerminal })
+    log.object("Closest Terminal", { ClosestTerminal = stationTerminal })
     if not config.singleTerminal then
       stationTerminal.terminal = nil
     end
@@ -245,14 +234,14 @@ local function update()
       local clock_time = math.floor(time / 1000)
       if clock_time ~= state.world_time then
         state.world_time = clock_time
+
         local clockString = formatClockString(clock_time)
-        print(clockString)
 
         -- some optimisation ideas noting here while i think of them.
         -- * add debugging info to count how many times various loops are entered per update so i know how much is too much
-        -- * (maybe not needed after below) build the proposal of multiple construction updates and send a single command after the loop
+        -- * (maybe not needed after below) build the proposal of multiple construction updates and send a single command after the loop (is this even a bottleneck?)
         -- * move station / line info gathering into less frequent coroutine
-        -- prevent multiple requests for the same data in this single update.
+        -- prevent multiple requests for the same data in this single update. (how slow are engine api calls?)
         -- we do need to request these per update tho because the player might edit the lines / add / remove vehicles
 
         for k, v in pairs(state.placed_signs) do
@@ -289,8 +278,6 @@ local function update()
 
             local newCon = api.type.SimpleProposal.ConstructionEntity.new()
 
-            --debugPrint(sign)
-
             local newParams = {}
             for oldKey, oldVal in pairs(sign.params) do
               newParams[oldKey] = oldVal
@@ -321,8 +308,6 @@ local function update()
             newCon.transf = sign.transf
             newCon.playerEntity = api.engine.util.getPlayer()
 
-            --debugPrint(newCon)
-            
             local proposal = api.type.SimpleProposal.new()
             proposal.constructionsToAdd[1] = newCon
             proposal.constructionsToRemove = { k }
@@ -333,7 +318,7 @@ local function update()
         end
       end
   else
-      print("cannot get time!")
+      log.message("cannot get time!")
   end
 end
 
@@ -341,13 +326,11 @@ local function handleEvent(src, id, name, param)
   if name == "add_display_construction" then
     local state = stateManager.getState()
     state.placed_signs[param] = {}
-    --print("Player created sign ID " .. tostring(param) .. ". Now managing the following signs:")
-    --debugPrint(state.placed_signs)
+    log.message("Added display construction id " .. tostring(param))
   elseif name == "remove_display_construction" then
     local state = stateManager.getState()
     state.placed_signs[param] = nil
-    --print("Player removed sign ID " .. tostring(param) .. ". Now managing the following signs:")
-    --debugPrint(state.placed_signs)
+    log.message("Removed display construction id " .. tostring(param))
   end
 end
 

@@ -26,5 +26,6 @@ end
 
 return {
   loadState = loadState,
-  getState = getState
+  getState = getState,
+  ensureState = ensureState
 }
