@@ -33,6 +33,7 @@ When I am happy with the quality and performance I will remove all these beta wa
 - The terminal detection is quite limited, it currently uses the vehicle override nodes on the terminals (i.e. where the train stops) and will have improved accuracy before leaving the beta phase
 - Line destination calculations may be wrong for some lines - it depends how they are defined. If you have lines that it gets wrong, please provide the list of stops and expected destinations. It may or may not be possible to automatically calculate - e.g. I don't think it'll ever work for "circular" lines without manual configuration
 - The ETA calculations are based on previous arrival times and segment travel times - if the vehicle has not travelled the line at least once, this data will be incomplete.
+- Detection of nearby street bus stations is not perfect - especially when there is a terminal on both sides of the road. Work in progress.
 - [b]You must pause the game before editing / deleting the assets[/b] - the asset is regularly "replaced" so by the time you've clicked bulldoze, the thing you tried to bulldoze isn't there anymore.
 
 [h1]Extensibility[/h1]

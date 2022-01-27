@@ -28,24 +28,52 @@ local function getClosestTerminal(transform)
 
   for _, entity in ipairs(results) do
     local station = api.engine.getComponent(entity, api.type.ComponentType.STATION)
-      if station then
-        local stationGroup = api.engine.system.stationGroupSystem.getStationGroup(entity)
+    if station then
+      local stationGroup = api.engine.system.stationGroupSystem.getStationGroup(entity)
+      for k, v in pairs(station.terminals) do
+        -- TODO - use positions of the person nodes on the termainl or something, as using vehicle node alone is prone to incorrect calcs (esp with varying length platforms)
+        local nodeData = api.engine.getComponent(v.vehicleNodeId.entity, api.type.ComponentType.BASE_NODE)
 
-        for k, v in pairs(station.terminals) do
-          -- TODO - use positions of the person nodes on the termainl or something, as using vehicle node alone is prone to incorrect calcs (esp with varying length platforms)
-          local nodeData = api.engine.getComponent(v.vehicleNodeId.entity, api.type.ComponentType.BASE_NODE)
-
-          if nodeData then
-            local distance = vec3.distance(position, nodeData.position)
-            if distance < shortestDistance then
-              shortestDistance = distance
-              closestEntity = entity
-              closestTerminal = k - 1
-              closestStationGroup = stationGroup
-            end
-            log.message("Terminal " .. tostring(k) .. " is " .. tostring(distance) .. "m away")
+        -- try getting a node from the edge if there is one
+        if not nodeData then
+          local edge = api.engine.getComponent(v.vehicleNodeId.entity, api.type.ComponentType.BASE_EDGE)
+          --log.object("edge", edge)
+          if edge then
+            nodeData = api.engine.getComponent(edge.node0, api.type.ComponentType.BASE_NODE)
           end
         end
+
+        -- if we couldn't get this node, need to fall back to station only...
+        if not nodeData then
+          local s2c = api.engine.system.streetConnectorSystem.getStation2ConstructionMap()
+          local conId = s2c[entity]
+          if conId then
+            local con = api.engine.getComponent(conId, api.type.ComponentType.CONSTRUCTION)
+            if con then
+              local distance = vec3.distance(position, vec3.new(con.transf[13], con.transf[14], con.transf[15]))
+              if distance < shortestDistance then
+                shortestDistance = distance
+                closestEntity = entity
+                closestTerminal = 1
+                closestStationGroup = stationGroup
+              end
+              log.message("Station " .. tostring(entity) .. " is " .. tostring(distance) .. "m away")
+              break
+            end
+          end
+        end
+
+        if nodeData then
+          local distance = vec3.distance(position, nodeData.position)
+          if distance < shortestDistance then
+            shortestDistance = distance
+            closestEntity = entity
+            closestTerminal = k - 1
+            closestStationGroup = stationGroup
+          end
+          log.message("Terminal " .. tostring(k) .. " is " .. tostring(distance) .. "m away")
+        end
+      end
     end
   end
 
