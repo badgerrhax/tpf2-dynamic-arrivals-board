@@ -296,7 +296,7 @@ local function update()
               paramName = paramName .. "arrival_" .. i .. "_"
               newParams[param(paramName .. "dest")] = a.dest
               newParams[param(paramName .. "time")] = config.absoluteArrivalTime and a.arrivalTimeString or a.etaMinsString
-              if not config.singleTerminal then
+              if not config.singleTerminal and a.arrivalTerminal then
                 newParams[param(paramName .. "terminal")] = a.arrivalTerminal + 1
               end
             end
