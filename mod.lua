@@ -19,6 +19,7 @@ I'm making this available for people to help with testing if they wish.
 
 [b]What I'd like help with[/b]
 - Feedback on how well it performs on various computers and map sizes, station sizes, etc.
+- Feedback about the functionality, what is good, bad, missing
 - Mods that might stop this working - e.g. the Timetables mod which I am already investigating for compatibility
 
 [b]Logging is enabled for the beta period[/b]
