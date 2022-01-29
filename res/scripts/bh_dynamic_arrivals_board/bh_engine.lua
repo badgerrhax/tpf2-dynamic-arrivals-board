@@ -116,6 +116,22 @@ local function calculateLineStopTermini(line)
   return stops
 end
 
+local function calculateTimeUntilStop(vehicle, stopIdx, stopsAway, nStops, averageSectionTime, currentTime)
+  local idx = (stopIdx - 2) % nStops + 1
+  local segTotal = 0
+  for _ = 1, stopsAway + 1 do
+    local seg = vehicle.sectionTimes[idx]
+    segTotal = segTotal + (seg or averageSectionTime)
+    idx = (idx - 2) % nStops + 1
+  end
+  segTotal = segTotal * 1000
+
+  local timeSinceLastDeparture = currentTime - vehicle.lineStopDepartures[idx % nStops + 1]
+  return math.ceil(segTotal - timeSinceLastDeparture)
+end
+
+local selectedObject
+
 --[[ 
   returns an array of tables that look like this:
   {
@@ -126,7 +142,7 @@ end
   }
   sorted in order of arrivalTime (earliest first)
 ]]
-local function getNextArrivals(stationTerminal, numArrivals)
+local function getNextArrivals(stationTerminal, numArrivals, time)
   -- despite how many we want to return, we actually need to look at every vehicle on every line stopping here before we can sort and trim
   local arrivals = {}
 
@@ -150,6 +166,7 @@ local function getNextArrivals(stationTerminal, numArrivals)
       if lineData then
         local lineTermini = calculateLineStopTermini(lineData) -- this will eventually be done in a slower engine loop to save performance
         local terminalStopIndex = {}
+        local nStops = #lineData.stops
         
         for stopIdx, stop in ipairs(lineData.stops) do
           if stop.stationGroup == stationTerminal.stationGroup and (stationTerminal.terminal == nil or stationTerminal.terminal == stop.terminal) then
@@ -165,10 +182,44 @@ local function getNextArrivals(stationTerminal, numArrivals)
               local lineDuration = 0
               for _, sectionTime in ipairs(vehicle.sectionTimes) do
                 lineDuration = lineDuration + sectionTime
+                if sectionTime == 0 then
+                  lineDuration = 0
+                  break -- early out if we dont have full line duration data. we need to calculate a different (less accurate) way
+                end
               end
+
+              --[[if selectedObject == veh then
+                debugPrint({ terminals = terminalStopIndex, sectionTimes = vehicle.sectionTimes, stopDepartures = vehicle.lineStopDepartures })
+              end]]
+
+              local function blah(str, val)
+                if selectedObject == veh then
+                  print(str .. " = " .. val)
+                end
+              end
+
+              if lineDuration == 0 then
+                -- vehicle hasn't run a full route yet, so fall back to less accurate (?) method
+                -- calculate line duration by multiplying the number of vehicles by the line frequency
+                local lineEntity = game.interface.getEntity(line)
+                lineDuration = (1 / lineEntity.frequency) * #vehicles
+              end
+
+              -- and calculate an average section time by dividing by the number of stops
+              local averageSectionTime = lineDuration / nStops
+
+              --log.object("vehicle_" .. veh, vehicle)
               for terminalIdx, stopIdx in pairs(terminalStopIndex) do
-                local stopsAway = (stopIdx - vehicle.stopIndex - 1) % #lineData.stops
-                local expectedArrivalTime = vehicle.lineStopDepartures[stopIdx] + math.ceil(lineDuration) * 1000
+                local stopsAway = (stopIdx - vehicle.stopIndex - 1) % nStops
+
+                -- using lineStopDepartures[stopIdx] + lineDuration seems simple but requires at least one full loop and still isn't always correct if there's bunching.
+                -- so instead, using stopsAway, add up the sectionTimes of the stops between there and here, and subtract the diff of now - stopsAway departure time.
+                -- lastLineStopDeparture seems to be inaccurate.
+                --local expectedArrivalTime = vehicle.lineStopDepartures[stopIdx] + math.ceil(lineDuration) * 1000
+
+                local timeUntilArrival = calculateTimeUntilStop(vehicle, stopIdx, stopsAway, nStops, averageSectionTime, time)
+                blah("[Stop " .. stopIdx .. "]: timeUntilArrival", timeUntilArrival)
+                local expectedArrivalTime = time + timeUntilArrival
 
                 arrivals[#arrivals+1] = {
                   terminalId = terminalIdx,
@@ -258,92 +309,125 @@ end
 local function update()
   local state = stateManager.loadState()
   local time = api.engine.getComponent(api.engine.util.getWorld(), api.type.ComponentType.GAME_TIME).gameTime
+  local speed = api.engine.getComponent(api.engine.util.getWorld(), api.type.ComponentType.GAME_SPEED).speedup
+  if not speed then
+    speed = 1
+  end
+
   if time then
       local clock_time = math.floor(time / 1000)
       if clock_time ~= state.world_time then
         state.world_time = clock_time
 
+        -- performance profiling
+        local startTick = os.clock()
+
         local clockString = formatClockString(clock_time)
 
         -- some optimisation ideas noting here while i think of them.
-        -- * add debugging info to count how many times various loops are entered per update so i know how much is too much
-        -- * (maybe not needed after below) build the proposal of multiple construction updates and send a single command after the loop (is this even a bottleneck?)
+        -- * (maybe not needed after below) build the proposal of multiple construction updates and send a single command after the loop.
+        --    (is this even a bottleneck? - not per call - batching all constructions into single proposal takes about as long as each individual build command.
+        --     so it may be more beneficial to make smaller batches and apply over a few updates to avoid a risk of stuttering)
         -- * move station / line info gathering into less frequent coroutine
-        -- prevent multiple requests for the same data in this single update. (how slow are engine api calls?)
+        -- prevent multiple requests for the same data in this single update. (how slow are engine api calls? )
         -- we do need to request these per update tho because the player might edit the lines / add / remove vehicles
+        -- do a pass over signs and sort into ones with and without a clock, and update the non-clock ones less frequently
 
-        for k, v in pairs(state.placed_signs) do
-          local sign = api.engine.getComponent(k, api.type.ComponentType.CONSTRUCTION)
-          if sign then
-            local config = construction.getRegisteredConstructions()[sign.fileName]
-            if not config then config = {} end
-            if not config.labelParamPrefix then config.labelParamPrefix = "" end
-            local function param(name) return config.labelParamPrefix .. name end
+        local newConstructions = {}
+        local oldConstructions = {}
 
-            -- update the linked terminal as it might have been changed by the player in the construction params
-            local terminalOverride = sign.params[param("terminal_override")] or 0
-            if v.stationTerminal and not v.stationTerminal.auto and terminalOverride == 0 then
-              -- player may have changed the construction from a specific terminal to auto, so we need to recalculate the closest one
-              v.linked = false
-            end
+        log.timed("sign processing", function()
+          for k, v in pairs(state.placed_signs) do
+            local sign = api.engine.getComponent(k, api.type.ComponentType.CONSTRUCTION)
+            if sign then
+              local config = construction.getRegisteredConstructions()[sign.fileName]
+              if not config then config = {} end
+              if not config.labelParamPrefix then config.labelParamPrefix = "" end
+              local function param(name) return config.labelParamPrefix .. name end
 
-            if not v.linked then
-              configureSignLink(sign, v, config)
-            end
-
-            if v.stationTerminal and terminalOverride > 0 then
-              v.stationTerminal.terminal = terminalOverride - 1
-              v.stationTerminal.auto = false
-            end
-
-            local arrivals = {}
-
-            if v.stationTerminal and config.maxArrivals > 0 then
-              -- i could do this getNextArrivals logic less frequently too, as the only thing that uses the current time is the formatting below
-              local nextArrivals = getNextArrivals(v.stationTerminal, config.maxArrivals)
-              arrivals = formatArrivals(nextArrivals, time)
-            end
-
-            local newCon = api.type.SimpleProposal.ConstructionEntity.new()
-
-            local newParams = {}
-            for oldKey, oldVal in pairs(sign.params) do
-              newParams[oldKey] = oldVal
-            end
-
-            if config.clock then
-              newParams[param("time_string")] = clockString
-              newParams[param("game_time")] = clock_time
-            end
-
-            newParams[param("num_arrivals")] = #arrivals
-
-            for i, a in ipairs(arrivals) do
-              local paramName = ""
-              
-              paramName = paramName .. "arrival_" .. i .. "_"
-              newParams[param(paramName .. "dest")] = a.dest
-              newParams[param(paramName .. "time")] = config.absoluteArrivalTime and a.arrivalTimeString or a.etaMinsString
-              if not config.singleTerminal and a.arrivalTerminal then
-                newParams[param(paramName .. "terminal")] = a.arrivalTerminal + 1
+              -- update the linked terminal as it might have been changed by the player in the construction params
+              local terminalOverride = sign.params[param("terminal_override")] or 0
+              if v.stationTerminal and not v.stationTerminal.auto and terminalOverride == 0 then
+                -- player may have changed the construction from a specific terminal to auto, so we need to recalculate the closest one
+                v.linked = false
               end
+
+              if not v.linked then
+                configureSignLink(sign, v, config)
+              end
+
+              if v.stationTerminal and terminalOverride > 0 then
+                v.stationTerminal.terminal = terminalOverride - 1
+                v.stationTerminal.auto = false
+              end
+
+              local arrivals = {}
+
+              if v.stationTerminal and config.maxArrivals > 0 then
+                local nextArrivals = getNextArrivals(v.stationTerminal, config.maxArrivals, time)
+
+                if selectedObject == k then
+                  log.object("Time", time)
+                  log.object("stationTerminal", v.stationTerminal)
+                  debugPrint(nextArrivals)
+                end
+
+                arrivals = formatArrivals(nextArrivals, time)
+              end
+
+              local newCon = api.type.SimpleProposal.ConstructionEntity.new()
+
+              local newParams = {}
+              for oldKey, oldVal in pairs(sign.params) do
+                newParams[oldKey] = oldVal
+              end
+
+              if config.clock then
+                newParams[param("time_string")] = clockString
+                newParams[param("game_time")] = clock_time
+              end
+
+              newParams[param("num_arrivals")] = #arrivals
+
+              for i, a in ipairs(arrivals) do
+                local paramName = ""
+                
+                paramName = paramName .. "arrival_" .. i .. "_"
+                newParams[param(paramName .. "dest")] = a.dest
+                newParams[param(paramName .. "time")] = config.absoluteArrivalTime and a.arrivalTimeString or a.etaMinsString
+                if not config.singleTerminal and a.arrivalTerminal then
+                  newParams[param(paramName .. "terminal")] = a.arrivalTerminal + 1
+                end
+              end
+
+              newParams.seed = sign.params.seed + 1
+
+              newCon.fileName = sign.fileName
+              newCon.params = newParams
+              newCon.transf = sign.transf
+              newCon.playerEntity = api.engine.util.getPlayer()
+
+              newConstructions[#newConstructions+1] = newCon
+              oldConstructions[#oldConstructions+1] = k
             end
+          end
+        end)
 
-            newParams.seed = sign.params.seed + 1
+        if #newConstructions then
+          local proposal = api.type.SimpleProposal.new()
+          for i = 1, #newConstructions do
+            proposal.constructionsToAdd[i] = newConstructions[i]
+          end
+          proposal.constructionsToRemove = oldConstructions
 
-            newCon.fileName = sign.fileName
-            newCon.params = newParams
-            newCon.transf = sign.transf
-            newCon.playerEntity = api.engine.util.getPlayer()
-
-            local proposal = api.type.SimpleProposal.new()
-            proposal.constructionsToAdd[1] = newCon
-            proposal.constructionsToRemove = { k }
-
+          log.timed("buildProposal command", function()
             -- changing params on a construction doesn't seem to change the entity id which indicates it doesn't completely "replace" it but i don't know how expensive this command actually is...
             api.cmd.sendCommand(api.cmd.make.buildProposal(proposal, api.type.Context:new(), true))
-          end
+          end)
         end
+
+        local executionTime = math.ceil((os.clock() - startTick) * 1000)
+        print("Full update took " .. executionTime .. "ms")
       end
   else
       log.message("cannot get time!")
@@ -351,14 +435,18 @@ local function update()
 end
 
 local function handleEvent(src, id, name, param)
-  if name == "add_display_construction" then
-    local state = stateManager.getState()
-    state.placed_signs[param] = {}
-    log.message("Added display construction id " .. tostring(param))
-  elseif name == "remove_display_construction" then
-    local state = stateManager.getState()
-    state.placed_signs[param] = nil
-    log.message("Removed display construction id " .. tostring(param))
+  if src == "bh_gui_engine.lua" then
+    if name == "add_display_construction" then
+      local state = stateManager.getState()
+      state.placed_signs[param] = {}
+      log.message("Added display construction id " .. tostring(param))
+    elseif name == "remove_display_construction" then
+      local state = stateManager.getState()
+      state.placed_signs[param] = nil
+      log.message("Removed display construction id " .. tostring(param))
+    elseif name == "select_object" then
+      selectedObject = param
+    end
   end
 end
 

@@ -4,14 +4,12 @@ function data()
 	return {
 		info = {
 			minorVersion = 0,
-			severityAdd = "CRITICAL",
-			severityRemove = "CRITICAL",
+			severityAdd = "WARNING",
+			severityRemove = "WARNING",
 			name = _("Dynamic Arrivals Board [BETA]"),
 			description = [[
 [h1]EARLY BETA VERSION - EXPECT BUGS AND INCOMPATIBILITIES[/h1]
-I've marked this mod CRITICAL severity for adding / removing from save games - only because it is still in development
-and based on feedback / bug reports, I may have to make significant changes. That said, my testing indicates no critical issues
-with removing it - it just replaces the boards with the default cube and I don't think this mod does anything particularly critical.
+Depending on feedback and bugs I may have to rework things that could cause this mod to stop working on earlier save games.
 
 [b]DURING BETA, PLEASE BACK UP YOUR SAVE GAMES BEFORE SAVING THIS MOD IN THEM[/b]
 Pretty good general advice when experimenting with new mods, really :)

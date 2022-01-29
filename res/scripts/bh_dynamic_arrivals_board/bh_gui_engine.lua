@@ -10,6 +10,10 @@ local function handleEvent(id, name, param)
   if name == 'builder.apply' or name == 'select' then
     local state = stateManager.getState()
 
+    if name == 'select' then
+      sendScriptEvent(id, "select_object", param)
+    end
+
     if name == 'builder.apply' then
       if param and param.proposal then
         local toAdd = param.proposal.toAdd
