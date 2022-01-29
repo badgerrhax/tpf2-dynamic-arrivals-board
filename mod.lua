@@ -9,6 +9,7 @@ function data()
 			name = _("Dynamic Arrivals Board [EARLY BETA]"),
 			description = [[
 [h1]EARLY BETA VERSION - EXPECT BUGS AND INCOMPATIBILITIES[/h1]
+At this time I make no promises about feature-completeness or stability.
 Depending on feedback and bugs I may have to rework things that could cause this mod to stop working on earlier save games.
 
 [b]DURING BETA, PLEASE BACK UP YOUR SAVE GAMES BEFORE SAVING THIS MOD IN THEM[/b]
