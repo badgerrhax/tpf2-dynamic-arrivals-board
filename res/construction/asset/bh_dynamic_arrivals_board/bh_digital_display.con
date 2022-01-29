@@ -67,11 +67,11 @@ function data()
       }
 
 			local labelValues = {
-				params[configKey("arrival_1_dest")], -- these are some of the params provided by the arrivals engine when updating this construction
-				params[configKey("arrival_2_dest")],
-				params[configKey("time_string")],
-				params[configKey("arrival_1_time")],
-				params[configKey("arrival_2_time")],
+				params[configKey("arrival_1_dest")] or "", -- these are some of the params provided by the arrivals engine when updating this construction
+				params[configKey("arrival_2_dest")] or "",
+				params[configKey("time_string")] or "",
+				params[configKey("arrival_1_time")] or "",
+				params[configKey("arrival_2_time")] or "",
 			}
 
 			result.labelText = {

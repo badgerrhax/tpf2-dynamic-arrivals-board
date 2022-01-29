@@ -56,15 +56,15 @@ function data()
 			labelValues[1] = "Destination"
 			labelValues[2] = "Plat"
 			labelValues[3] = "Time"
-			labelValues[28] = params[configKey("time_string")]
+			labelValues[28] = params[configKey("time_string")] or ""
 
 			local numArrivals = params[configKey("num_arrivals")] or 0
 			if numArrivals > 0 then
 				for i = 1, numArrivals do
 					local labelIndexStart = 3 * i + 1
-					labelValues[labelIndexStart] = params[configKey("arrival_" .. i .. "_dest")]
-					labelValues[labelIndexStart+1] = tostring(params[configKey("arrival_" .. i .. "_terminal")])
-					labelValues[labelIndexStart+2] = params[configKey("arrival_" .. i .. "_time")]
+					labelValues[labelIndexStart] = params[configKey("arrival_" .. i .. "_dest")] or ""
+					labelValues[labelIndexStart+1] = tostring(params[configKey("arrival_" .. i .. "_terminal")]) or ""
+					labelValues[labelIndexStart+2] = params[configKey("arrival_" .. i .. "_time")] or ""
 				end
 			end
 
