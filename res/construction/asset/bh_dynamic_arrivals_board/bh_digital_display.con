@@ -4,6 +4,7 @@ local utils = require "bh_dynamic_arrivals_board/bh_utils"
 
 local styles = { "digital_display", "digital_display_nopole", "digital_display_floating" }
 
+-- I use a utility function to join the param label registered with the engine, with the individual param names
 local function configKey(name)
 	return "bh_digital_display_" .. name
 end
@@ -22,6 +23,7 @@ local function makeParams()
 		values = utils.parameterIcons(styles)
 	}
 
+	-- since the terminal placement logic is not perfect, provide a param to override the terminal this sign is linked to
 	utils.makeTerminalOverrideParam(params, configKey)
 
 	utils.makeRotateParams(params, configKey)
@@ -64,14 +66,12 @@ function data()
         id = model, transf = constructionutil.rotateTransf(params, transf.rotZYXTransl(rotate, offset))
       }
 
-			-- must be prepared for the params to have not been set (if there are no lines / arrivals / whatever other reason)
-			-- so default to empty strings
 			local labelValues = {
-				params[configKey("arrival_1_dest")] or "",
-				params[configKey("arrival_2_dest")] or "",
-				params[configKey("time_string")] or "",
-				params[configKey("arrival_1_time")] or "",
-				params[configKey("arrival_2_time")] or "",
+				params[configKey("arrival_1_dest")], -- these are some of the params provided by the arrivals engine when updating this construction
+				params[configKey("arrival_2_dest")],
+				params[configKey("time_string")],
+				params[configKey("arrival_1_time")],
+				params[configKey("arrival_2_time")],
 			}
 
 			result.labelText = {

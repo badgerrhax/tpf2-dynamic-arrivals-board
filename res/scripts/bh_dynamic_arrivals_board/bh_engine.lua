@@ -369,7 +369,7 @@ local function update()
                 if selectedObject == k then
                   log.object("Time", time)
                   log.object("stationTerminal", v.stationTerminal)
-                  debugPrint(nextArrivals)
+                  log.object("nextArrivals", nextArrivals)
                 end
 
                 arrivals = formatArrivals(nextArrivals, time)
