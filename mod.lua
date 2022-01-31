@@ -93,7 +93,7 @@ display construction and it will manage its display updates when placed in game.
 				absoluteArrivalTime = false,
 
 				-- parameter name prefix (can help avoid conflicts with other mod params)
-				labelParamPrefix = "bh_digital_display_"
+				labelParamPrefix = "bh_digital_display_",
 			})
 
 			construction.registerConstruction("asset/bh_dynamic_arrivals_board/bh_digital_station_summary_display.con", {
@@ -101,7 +101,7 @@ display construction and it will manage its display updates when placed in game.
 			 clock = true,
 			 maxArrivals = 8,
 			 absoluteArrivalTime = true,
-			 labelParamPrefix = "bh_summary_display_"
+			 labelParamPrefix = "bh_summary_display_",
 		 })
 		end,
  }

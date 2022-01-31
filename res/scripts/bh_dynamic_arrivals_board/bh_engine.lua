@@ -1,4 +1,5 @@
 local vec3 = require "vec3"
+local transf = require "transf"
 
 local bhm = require "bh_dynamic_arrivals_board/bh_maths"
 local stateManager = require "bh_dynamic_arrivals_board/bh_state_manager"
@@ -11,14 +12,36 @@ local function getClosestTerminal(transform)
   local radius = 50
 
   local box = api.type.Box3.new(
-    api.type.Vec3f.new(position.x - radius, position.y - radius, -9999),
-    api.type.Vec3f.new(position.x + radius, position.y + radius, 9999)
+    api.type.Vec3f.new(position.x - radius, position.y - radius, position.z - 10),
+    api.type.Vec3f.new(position.x + radius, position.y + radius, position.z + 10)
   )
+
   local results = {}
+
   api.engine.system.octreeSystem.findIntersectingEntities(box, function(entity, boundingVolume)
-    if entity and api.engine.getComponent(entity, api.type.ComponentType.STATION) then
-      results[#results+1] = entity
-    end
+    xpcall(function()
+      --[[if entity then
+        local station = api.engine.getComponent(entity, api.type.ComponentType.STATION)
+        local tpnet = api.engine.getComponent(entity, api.type.ComponentType.TRANSPORT_NETWORK)
+
+        if station then
+          --debugPrint(station)
+        end
+
+        if tpnet then
+          if entity == 32411 then
+            --print(entity)
+            local tpnetlink = api.engine.getComponent(entity, api.type.ComponentType.TP_NET_LINK)
+            --debugPrint({ tpnet = tpnet, tpnetlink = tpnetlink })
+          end
+          --local stationTerminals = api.engine.system.stationSystem.getStationTerminalsForPersonNode(tpnet.edges[1].conns[1])
+          --debugPrint({ st = stationTerminals })
+        end
+      end]]
+      if entity and api.engine.getComponent(entity, api.type.ComponentType.STATION) then
+        results[#results+1] = entity
+      end
+    end, function(err) print(err) end)
   end)
 
   local shortestDistance = 9999
@@ -26,13 +49,48 @@ local function getClosestTerminal(transform)
   local closestTerminal
   local closestStationGroup
 
+  local tpData = {}
+  local function getTpnEdges(entity)
+    local tpn = tpData[entity]
+    if not tpn then
+      local network = api.engine.getComponent(entity, api.type.ComponentType.TRANSPORT_NETWORK)
+      if network then
+        tpn = network.edges
+      else
+        tpn = {}
+      end
+      tpData[entity] = tpn
+    end
+    return tpn
+  end
+
   for _, entity in ipairs(results) do
     local station = api.engine.getComponent(entity, api.type.ComponentType.STATION)
     if station then
       local stationGroup = api.engine.system.stationGroupSystem.getStationGroup(entity)
       for k, v in pairs(station.terminals) do
-        -- TODO - use positions of the person nodes on the termainl or something, as using vehicle node alone is prone to incorrect calcs (esp with varying length platforms)
-        local nodeData = api.engine.getComponent(v.vehicleNodeId.entity, api.type.ComponentType.BASE_NODE)
+        -- this is an improvement over vehicle nodes as the terminal detection further away from the station is better.
+        -- but there are still sections of platforms where it misses / gets the wrong info for some reason, and near an entrance it always seems to prefer 2nd platform
+        -- i guess because some edges cross the terminal and i happen to pick the node on the far end as the position test?
+        -- not sure how to solve that other than to find the longest edges and take their tangents as the direction of the platform..
+        for _, p in ipairs(v.personEdges) do
+          local tpn = getTpnEdges(p.entity)
+          if tpn then
+            local edge = tpn[p.index]
+            if edge and edge.geometry and edge.geometry.params and edge.geometry.params.pos and edge.geometry.height then
+              local edgePos = vec3.new(edge.geometry.params.pos.x, edge.geometry.params.pos.y, edge.geometry.height.x)
+              local distance = vec3.distance(position, edgePos)
+              if distance < shortestDistance then
+                shortestDistance = distance
+                closestEntity = entity
+                closestTerminal = k - 1
+                closestStationGroup = stationGroup
+              end
+            end
+          end
+        end
+
+        --[[local nodeData = api.engine.getComponent(v.vehicleNodeId.entity, api.type.ComponentType.BASE_NODE)
 
         -- try getting a node from the edge if there is one
         if not nodeData then
@@ -72,12 +130,13 @@ local function getClosestTerminal(transform)
             closestStationGroup = stationGroup
           end
           log.message("Terminal " .. tostring(k) .. " is " .. tostring(distance) .. "m away")
-        end
+        end]]
       end
     end
   end
 
   if closestEntity then
+    log.message("Part of transport network on terminal " .. closestTerminal .. " is closest to sign (" .. tostring(shortestDistance) .. "m)")
     return { station = closestEntity, stationGroup = closestStationGroup, terminal = closestTerminal, auto = true }
   else
     return nil
@@ -293,7 +352,9 @@ local function formatArrivals(arrivals, time)
 end
 
 local function configureSignLink(sign, state, config)
-  local stationTerminal = getClosestTerminal(sign.transf)
+  local xform = sign.transf
+
+  local stationTerminal = getClosestTerminal(xform)
 
   if stationTerminal then
     log.object("Closest Terminal", { ClosestTerminal = stationTerminal })
@@ -310,6 +371,7 @@ local function update()
   local state = stateManager.loadState()
   local time = api.engine.getComponent(api.engine.util.getWorld(), api.type.ComponentType.GAME_TIME).gameTime
   local speed = api.engine.getComponent(api.engine.util.getWorld(), api.type.ComponentType.GAME_SPEED).speedup
+  -- TODO actually use this to avoid faster speeds updating faster.. it's not necessary...
   if not speed then
     speed = 1
   end
