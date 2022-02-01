@@ -7,6 +7,10 @@ local construction = require "bh_dynamic_arrivals_board/bh_construction_hooks"
 
 local log = require "bh_dynamic_arrivals_board/bh_log"
 
+local function validEntity(id)
+  return type(id) == "number" and id > 0 and api.engine.entityExists(id)
+end
+
 local function getClosestTerminal(transform)
   local position = bhm.transformVec(vec3.new(0, 0, 0), transform)
   local radius = 50
@@ -16,33 +20,26 @@ local function getClosestTerminal(transform)
     api.type.Vec3f.new(position.x + radius, position.y + radius, position.z + 10)
   )
 
-  local results = {}
+  local stations = {}
 
   api.engine.system.octreeSystem.findIntersectingEntities(box, function(entity, boundingVolume)
     xpcall(function()
-      --[[if entity then
-        local station = api.engine.getComponent(entity, api.type.ComponentType.STATION)
-        local tpnet = api.engine.getComponent(entity, api.type.ComponentType.TRANSPORT_NETWORK)
-
-        if station then
-          --debugPrint(station)
-        end
-
-        if tpnet then
-          if entity == 32411 then
-            --print(entity)
-            local tpnetlink = api.engine.getComponent(entity, api.type.ComponentType.TP_NET_LINK)
-            --debugPrint({ tpnet = tpnet, tpnetlink = tpnetlink })
+      if entity and api.engine.getComponent(entity, api.type.ComponentType.BASE_EDGE_TRACK) then
+        local conId = api.engine.system.streetConnectorSystem.getConstructionEntityForEdge(entity)
+        if validEntity(conId) then
+          local con = api.engine.getComponent(conId, api.type.ComponentType.CONSTRUCTION)
+          if con then
+            for _, id in pairs(con.stations) do
+              stations[id] = true
+            end
           end
-          --local stationTerminals = api.engine.system.stationSystem.getStationTerminalsForPersonNode(tpnet.edges[1].conns[1])
-          --debugPrint({ st = stationTerminals })
         end
-      end]]
-      if entity and api.engine.getComponent(entity, api.type.ComponentType.STATION) then
-        results[#results+1] = entity
       end
+
     end, function(err) print(err) end)
   end)
+
+  debugPrint(stations)
 
   local shortestDistance = 9999
   local closestEntity
@@ -64,7 +61,7 @@ local function getClosestTerminal(transform)
     return tpn
   end
 
-  for _, entity in ipairs(results) do
+  for entity, _ in pairs(stations) do
     local station = api.engine.getComponent(entity, api.type.ComponentType.STATION)
     if station then
       local stationGroup = api.engine.system.stationGroupSystem.getStationGroup(entity)
