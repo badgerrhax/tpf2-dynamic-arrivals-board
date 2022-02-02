@@ -59,13 +59,28 @@ local function getClosestTerminal(transform)
     return tpn
   end
 
+  -- calculates the start or end point of an edge using its origin position and tangent
+  local function edgeNodePos(geometry, index) -- <= 1 for start point, > 1 for end point
+    local pos = geometry.params.pos
+    local tan = geometry.params.tangent
+    local offset = geometry.params.offset or 0
+    local perpendicularOffset = offset * vec3.normalize(vec3.new(-tan.y, tan.x, 0))
+    return (index > 1 and
+      vec3.new(pos.x + tan.x, pos.y + tan.y, geometry.height.y) or
+      vec3.new(pos.x, pos.y, geometry.height.x)) + perpendicularOffset
+  end
+
+  -- calculates the distance from position to the closest point on edge
   local function distanceFromEdge(position, edgeId)
     local tpn = getTpnEdges(edgeId.entity)
     if tpn then
       local edge = tpn[edgeId.index]
-      if edge and edge.geometry and edge.geometry.params and edge.geometry.params.pos and edge.geometry.height then
-        local edgePos = vec3.new(edge.geometry.params.pos.x, edge.geometry.params.pos.y, edge.geometry.height.x)
-        return vec3.distance(position, edgePos)
+      if edge and edge.geometry then
+        local edgePos1 = edgeNodePos(edge.geometry, 1)
+        local edgePos2 = edgeNodePos(edge.geometry, 2)
+
+        local dist = vec3.length(vec3.cross(position - edgePos1, edgePos2 - edgePos1)) / vec3.length(edgePos2 - edgePos1)
+        return dist
       end
     end
 
@@ -83,16 +98,7 @@ local function getClosestTerminal(transform)
         if edge.conns and edge.geometry then
           for idx, conn in ipairs(edge.conns) do
             if conn.entity == nodeId.entity and conn.index == nodeId.index then
-              local pos = edge.geometry.params.pos
-              local tan = edge.geometry.params.tangent
-              local offset = edge.geometry.params.offset or 0
-              local perpendicularOffset = offset * vec3.normalize(vec3.new(-tan.y, tan.x, 0))
-              local nodePos = (idx > 1 and
-                vec3.new(pos.x + tan.x, pos.y + tan.y, edge.geometry.height.y) or
-                vec3.new(pos.x, pos.y, edge.geometry.height.x)) + perpendicularOffset
-
-              local dist = vec3.distance(position, nodePos)
-              return dist
+              return vec3.distance(position, edgeNodePos(edge.geometry, idx))
             end
           end
         end
@@ -123,9 +129,6 @@ local function getClosestTerminal(transform)
       end
 
       for k, v in pairs(station.terminals) do
-        -- this is an improvement over vehicle nodes as the terminal detection further away from the station is better.
-        -- but there are still sections of platforms where it misses / gets the wrong info for some reason, and near an entrance it always seems to prefer 2nd platform
-        -- TODO: do a better job with distanceFromEdge calculations - using personNodes doesn't help, there are still as many cases where it gets the wrong terminal.
         for _, p in ipairs(v.personEdges) do
           local distance = distanceFromEdge(position, p)
           if distance and distance < shortestDistance then
