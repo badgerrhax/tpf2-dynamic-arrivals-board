@@ -8,6 +8,12 @@ local function transformVec(vec, matrix)
   )
 end
 
+-- calculate distance from point A to closest point on line BC
+local function distanceToLine(A, B, C)
+  return vec3.length(vec3.cross(A - B, C - B)) / vec3.length(C - B)
+end
+
 return {
-  transformVec = transformVec
+  transformVec = transformVec,
+  distanceToLine = distanceToLine
 }

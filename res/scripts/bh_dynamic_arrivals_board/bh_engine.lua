@@ -2,6 +2,8 @@ local vec3 = require "vec3"
 local transf = require "transf"
 
 local bhm = require "bh_dynamic_arrivals_board/bh_maths"
+local bhtp = require "bh_dynamic_arrivals_board/bh_tpnet_utils"
+
 local stateManager = require "bh_dynamic_arrivals_board/bh_state_manager"
 local construction = require "bh_dynamic_arrivals_board/bh_construction_hooks"
 
@@ -11,21 +13,22 @@ local function validEntity(id)
   return type(id) == "number" and id > 0 and api.engine.entityExists(id)
 end
 
--- TODO refactor a bunch of these little util functions once they are proven to be useful
 local function getClosestTerminal(transform)
-  local position = bhm.transformVec(vec3.new(0, 0, 0), transform)
-  local radius = 50
+  return log.timed("getClosestTerminal", function()
+    local position = bhm.transformVec(vec3.new(0, 0, 0), transform)
+    local radius = 50
 
-  local box = api.type.Box3.new(
-    api.type.Vec3f.new(position.x - radius, position.y - radius, position.z - 10),
-    api.type.Vec3f.new(position.x + radius, position.y + radius, position.z + 10)
-  )
+    local box = api.type.Box3.new(
+      api.type.Vec3f.new(position.x - radius, position.y - radius, position.z - 10),
+      api.type.Vec3f.new(position.x + radius, position.y + radius, position.z + 10)
+    )
 
-  local stations = {}
+    local stations = {}
 
-  api.engine.system.octreeSystem.findIntersectingEntities(box, function(entity, boundingVolume)
-    xpcall(function()
-      if entity then
+    api.engine.system.octreeSystem.findIntersectingEntities(box, function(entity, boundingVolume)
+      xpcall(function()
+        if not entity then return end
+
         if api.engine.getComponent(entity, api.type.ComponentType.BASE_EDGE_TRACK) then
           local conId = api.engine.system.streetConnectorSystem.getConstructionEntityForEdge(entity)
           if validEntity(conId) then
@@ -40,130 +43,66 @@ local function getClosestTerminal(transform)
           -- fall back for non-rail stations - i.e. bus stops.
           stations[entity] = true
         end
-      end
-    end, function(err) print(err) end)
-  end)
+      end, function(err) print(err) end)
+    end)
 
-  local tpData = {}
-  local function getTpnEdges(entity)
-    local tpn = tpData[entity]
-    if not tpn then
-      local network = api.engine.getComponent(entity, api.type.ComponentType.TRANSPORT_NETWORK)
-      if network then
-        tpn = network.edges
-      else
-        tpn = {}
-      end
-      tpData[entity] = tpn
-    end
-    return tpn
-  end
+    local shortestDistance = 9999
+    local closestEntity
+    local closestTerminal
+    local closestStationGroup
+    local closestStationGroupObj
 
-  -- calculates the start or end point of an edge using its origin position and tangent
-  local function edgeNodePos(geometry, index) -- <= 1 for start point, > 1 for end point
-    local pos = geometry.params.pos
-    local tan = geometry.params.tangent
-    local offset = geometry.params.offset or 0
-    local perpendicularOffset = offset * vec3.normalize(vec3.new(-tan.y, tan.x, 0))
-    return (index > 1 and
-      vec3.new(pos.x + tan.x, pos.y + tan.y, geometry.height.y) or
-      vec3.new(pos.x, pos.y, geometry.height.x)) + perpendicularOffset
-  end
+    for entity, _ in pairs(stations) do
+      local station = api.engine.getComponent(entity, api.type.ComponentType.STATION)
+      if station then
+        local stationGroup = api.engine.system.stationGroupSystem.getStationGroup(entity)
+        local stationGroupObj = api.engine.getComponent(stationGroup, api.type.ComponentType.STATION_GROUP)
 
-  -- calculates the distance from position to the closest point on edge
-  local function distanceFromEdge(position, edgeId)
-    local tpn = getTpnEdges(edgeId.entity)
-    if tpn then
-      local edge = tpn[edgeId.index]
-      if edge and edge.geometry then
-        local edgePos1 = edgeNodePos(edge.geometry, 1)
-        local edgePos2 = edgeNodePos(edge.geometry, 2)
+        local function applyClosest(distance, k)
+          shortestDistance = distance
+          closestEntity = entity
+          closestTerminal = k - 1
+          closestStationGroup = stationGroup
+          closestStationGroupObj = stationGroupObj
+        end
 
-        local dist = vec3.length(vec3.cross(position - edgePos1, edgePos2 - edgePos1)) / vec3.length(edgePos2 - edgePos1)
-        return dist
-      end
-    end
+        for k, v in pairs(station.terminals) do
+          for _, p in ipairs(v.personEdges) do
+            local distance = bhtp.distanceFromEdge(position, p)
+            if distance and distance < shortestDistance then
+              applyClosest(distance, k)
+            end
+          end
 
-    return nil
-  end
-
-  -- get the distance from a node in the transport network by finding its entity/id combo
-  -- in a set of edge connections and calculating its position using the edge geometry.
-  -- there are usually 2 instances of this node in a set of edges but we only need the first
-  -- because the tangent calcs result in the same value regardless (because the edge ends at the same node)
-  local function distanceFromNode(position, nodeId)
-    local tpn = getTpnEdges(nodeId.entity)
-    if tpn then
-      for _, edge in ipairs(tpn) do
-        if edge.conns and edge.geometry then
-          for idx, conn in ipairs(edge.conns) do
-            if conn.entity == nodeId.entity and conn.index == nodeId.index then
-              return vec3.distance(position, edgeNodePos(edge.geometry, idx))
+          if #v.personEdges == 0 then -- bus stops don't have personEdges so use the vehicle node
+            local distance = bhtp.distanceFromNode(position, v.vehicleNodeId)
+            if distance and distance < shortestDistance then
+              applyClosest(distance, k)
             end
           end
         end
       end
     end
 
-    return nil
-  end
-
-  local shortestDistance = 9999
-  local closestEntity
-  local closestTerminal
-  local closestStationGroup
-  local closestStationGroupObj
-
-  for entity, _ in pairs(stations) do
-    local station = api.engine.getComponent(entity, api.type.ComponentType.STATION)
-    if station then
-      local stationGroup = api.engine.system.stationGroupSystem.getStationGroup(entity)
-      local stationGroupObj = api.engine.getComponent(stationGroup, api.type.ComponentType.STATION_GROUP)
-
-      local function applyClosest(distance, k)
-        shortestDistance = distance
-        closestEntity = entity
-        closestTerminal = k - 1
-        closestStationGroup = stationGroup
-        closestStationGroupObj = stationGroupObj
-      end
-
-      for k, v in pairs(station.terminals) do
-        for _, p in ipairs(v.personEdges) do
-          local distance = distanceFromEdge(position, p)
-          if distance and distance < shortestDistance then
-            applyClosest(distance, k)
+    if closestEntity then
+      -- I hoped this check below would work for buses but the line API doesn't seem to return anything for non-zero terminals on street bus stops..
+      -- which when there is a stop on both sides of the street with different destinations is obviously a problem. Maybe I am missing something, will consult the API docs.
+      
+      --[[if closestStationGroupObj and #closestStationGroupObj.stations > 1 then
+        -- this is likely a bus stop or something where each "station" has one terminal and the game uses the station group for multiple terminals
+        for idx, station in ipairs(closestStationGroupObj.stations) do
+          if station == closestEntity then
+            closestTerminal = idx - 1 -- assume the terminals are in order of the station group
           end
         end
+      end]]
 
-        if #v.personEdges == 0 then -- bus stops don't have personEdges so use the vehicle node
-          local distance = distanceFromNode(position, v.vehicleNodeId)
-          if distance and distance < shortestDistance then
-            applyClosest(distance, k)
-          end
-        end
-      end
+      log.message("Found station " .. closestEntity .. " terminal " .. closestTerminal .. " via a transport node " .. tostring(shortestDistance) .. "m away")
+      return { station = closestEntity, stationGroup = closestStationGroup, terminal = closestTerminal, auto = true }
+    else
+      return nil
     end
-  end
-
-  if closestEntity then
-    -- I hoped this check below would work for buses but the line API doesn't seem to return anything for non-zero terminals on street bus stops..
-    -- which when there is a stop on both sides of the street with different destinations is obviously a problem. Maybe I am missing something, will consult the API docs.
-    
-    --[[if closestStationGroupObj and #closestStationGroupObj.stations > 1 then
-      -- this is likely a bus stop or something where each "station" has one terminal and the game uses the station group for multiple terminals
-      for idx, station in ipairs(closestStationGroupObj.stations) do
-        if station == closestEntity then
-          closestTerminal = idx - 1 -- assume the terminals are in order of the station group
-        end
-      end
-    end]]
-
-    log.message("Found station " .. closestEntity .. " terminal " .. closestTerminal .. " via a transport node " .. tostring(shortestDistance) .. "m away")
-    return { station = closestEntity, stationGroup = closestStationGroup, terminal = closestTerminal, auto = true }
-  else
-    return nil
-  end
+  end)
 end
 
 local function calculateLineStopTermini(line)
@@ -350,7 +289,7 @@ local function formatArrivals(arrivals, time)
   local ret = {}
 
   if arrivals then
-    for i, arrival in ipairs(arrivals) do
+    for _, arrival in ipairs(arrivals) do
       local entry = { dest = "", etaMinsString = "", arrivalTimeString = "", arrivalTerminal = arrival.terminalId }
       local terminusName = api.engine.getComponent(arrival.destination, api.type.ComponentType.NAME)
       if terminusName then
@@ -366,9 +305,6 @@ local function formatArrivals(arrivals, time)
 
       ret[#ret+1] = entry
     end
-  end
-  while #ret < 2 do
-    ret[#ret+1] = { dest = "", eta = 0 }
   end
 
   return ret
