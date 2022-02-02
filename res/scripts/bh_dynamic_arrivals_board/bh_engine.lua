@@ -17,10 +17,11 @@ local function getClosestTerminal(transform)
   return log.timed("getClosestTerminal", function()
     local position = bhm.transformVec(vec3.new(0, 0, 0), transform)
     local radius = 50
+    local height = 10
 
     local box = api.type.Box3.new(
-      api.type.Vec3f.new(position.x - radius, position.y - radius, position.z - 10),
-      api.type.Vec3f.new(position.x + radius, position.y + radius, position.z + 10)
+      api.type.Vec3f.new(position.x - radius, position.y - radius, position.z - height),
+      api.type.Vec3f.new(position.x + radius, position.y + radius, position.z + height)
     )
 
     local stations = {}
@@ -41,6 +42,19 @@ local function getClosestTerminal(transform)
           end
         elseif api.engine.getComponent(entity, api.type.ComponentType.STATION) then
           -- fall back for non-rail stations - i.e. bus stops.
+          
+          -- with a bit more work, it looks like it might be possible to use the bounding volume of each detected station to prioritise
+          -- which one to choose. e.g bus station next to train station and putting summary signs on front of train station,
+          -- it could use the fact of being inside the bbox to prioritise that station, and if it is not inside any,
+          -- fall back to the regular distance calc, or perhaps find the distance to the nearest edge of each bounding volume.
+          -- of course the accuracy of this depends on transforming the AABB to OBB - could use the construction transf to help
+          --[[local bboxMin = boundingVolume.bbox.min
+          local bboxMax = boundingVolume.bbox.max
+
+          if position.x > bboxMin.x and position.y > bboxMin.y and position.z > (bboxMin.z - height) and
+            position.x < bboxMax.x and position.y < bboxMax.y and position.z < (bboxMax.z + height) then
+            -- inside bbox = higher priority station
+          end]]
           stations[entity] = true
         end
       end, function(err) print(err) end)
