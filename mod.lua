@@ -3,7 +3,7 @@ local construction = require "bh_dynamic_arrivals_board/bh_construction_hooks"
 function data()
 	return {
 		info = {
-			minorVersion = 0,
+			minorVersion = 1,
 			severityAdd = "WARNING",
 			severityRemove = "WARNING",
 			name = _("Dynamic Arrivals Board [EARLY BETA]"),
@@ -44,9 +44,8 @@ I'm planning on extending the mod to support signs displaying the following type
 [h1]Known issues[/h1]
 These are things I've identified as needing more work
 - Must be placed within 50m of a station - this distance is abitrary and open to feedback on reasonable values
-- The terminal detection needs improvement - if you place it too far from where the train stops it'll likely get it wrong. There's a terminal override on the asset parameters for now.
+- The terminal detection may still fail on extremely curved stations. There's a terminal override on the asset parameters for now.
 - Line destination calculations may be wrong for some lines - it depends how they are defined. If you have lines that it gets wrong, please provide the list of stops and expected destinations. It may or may not be possible to automatically calculate - e.g. I don't think it'll ever work for "circular" lines without manual configuration
-- Detection of nearby street bus stations is only semi-functional - especially when there is a terminal on both sides of the road. Work in progress.
 - General code optimisations will be done once the functionality is solid, to speed up the station updates
 
 [h1]Limitations[/h1]

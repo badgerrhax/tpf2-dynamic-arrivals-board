@@ -110,7 +110,7 @@ local function getClosestTerminal(transform)
         end
       end
 
-      log.message("Found station " .. closestEntity .. " stationIdx " .. stationIdx .. ", terminal " .. closestTerminal .. " via a transport node " .. tostring(shortestDistance) .. "m away")
+      log.message("Found station " .. closestEntity .. " stationIdx " .. tostring(stationIdx) .. ", terminal " .. closestTerminal .. " via a transport node " .. tostring(shortestDistance) .. "m away")
       return { station = closestEntity, stationIdx = stationIdx, stationGroup = closestStationGroup, terminal = closestTerminal, auto = true }
     else
       return nil
