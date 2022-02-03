@@ -23,6 +23,13 @@ local function makeParams()
 		values = utils.parameterIcons(styles)
 	}
 
+	params[#params+1] = {
+		key = configKey("snapTrackPlatformAlign"),
+		name = _("Snapping Align"),
+		values = { _("Free"), _("Platform") },
+		defaultIndex = 1
+	}
+
 	-- since the terminal placement logic is not perfect, provide a param to override the terminal this sign is linked to
 	utils.makeTerminalOverrideParam(params, configKey)
 
@@ -53,12 +60,18 @@ function data()
 			local result = { }
 			result.models = {}
 
+			local align = params[configKey("snapTrackPlatformAlign")] or 1
+
 			local rotate = utils.readRotateParams(params, configKey)
-			rotate.x = rotate.x + math.pi / 2
+			if align ~= 0 then
+				rotate.x = rotate.x + math.pi / 2
+			end
 
 			local offset = utils.readOffsetParams(params, configKey)
-			offset.y = offset.y - 4.95
-			offset.z = offset.z + 0.54
+			if align ~= 0 then
+				offset.y = offset.y - 4.95
+				offset.z = offset.z + 0.54
+			end
 
 			local style = styles[params[configKey("style")]+1]
       local model = mdl(style)
