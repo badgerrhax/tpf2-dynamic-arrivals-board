@@ -44,7 +44,7 @@ I'm planning on extending the mod to support signs displaying the following type
 [h1]Known issues[/h1]
 These are things I've identified as needing more work
 - Must be placed within 50m of a station - this distance is abitrary and open to feedback on reasonable values
-- The terminal detection may still fail on extremely curved stations. There's a terminal override on the asset parameters for now.
+- The terminal detection may still fail on extremely curved stations or two platforms on either side of a single track. There's a terminal override on the asset parameters for now.
 - Line destination calculations may be wrong for some lines - it depends how they are defined. If you have lines that it gets wrong, please provide the list of stops and expected destinations. It may or may not be possible to automatically calculate - e.g. I don't think it'll ever work for "circular" lines without manual configuration
 - General code optimisations will be done once the functionality is solid, to speed up the station updates
 
