@@ -38,27 +38,26 @@ local function distanceFromEdge(position, edgeId)
   return nil
 end
 
-
-  -- get the distance from a node in the transport network by finding its entity/id combo
-  -- in a set of edge connections and calculating its position using the edge geometry.
-  -- there are usually 2 instances of this node in a set of edges but we only need the first
-  -- because the tangent calcs result in the same value regardless (because the edge ends at the same node)
-  local function distanceFromNode(position, nodeId)
-    local tpn = getTpnEdges(nodeId.entity)
-    if tpn then
-      for _, edge in ipairs(tpn) do
-        if edge.conns and edge.geometry then
-          for idx, conn in ipairs(edge.conns) do
-            if conn.entity == nodeId.entity and conn.index == nodeId.index then
-              return vec3.distance(position, edgeNodePos(edge.geometry, idx))
-            end
+-- get the distance from a node in the transport network by finding its entity/id combo
+-- in a set of edge connections and calculating its position using the edge geometry.
+-- there are usually 2 instances of this node in a set of edges but we only need the first
+-- because the tangent calcs result in the same value regardless (because the edge ends at the same node)
+local function distanceFromNode(position, nodeId)
+  local tpn = getTpnEdges(nodeId.entity)
+  if tpn then
+    for _, edge in ipairs(tpn) do
+      if edge.conns and edge.geometry then
+        for idx, conn in ipairs(edge.conns) do
+          if conn.entity == nodeId.entity and conn.index == nodeId.index then
+            return vec3.distance(position, edgeNodePos(edge.geometry, idx))
           end
         end
       end
     end
-
-    return nil
   end
+
+  return nil
+end
 
 return {
   distanceFromEdge = distanceFromEdge,

@@ -1,8 +1,9 @@
 local vec3 = require "vec3"
 local transf = require "transf"
 
-local bhm = require "bh_dynamic_arrivals_board/bh_maths"
-local bhtp = require "bh_dynamic_arrivals_board/bh_tpnet_utils"
+local maths = require "bh_dynamic_arrivals_board/bh_maths"
+local tpnetUtils = require "bh_dynamic_arrivals_board/bh_tpnet_utils"
+local lineUtils = require "bh_dynamic_arrivals_board/bh_line_utils"
 
 local stateManager = require "bh_dynamic_arrivals_board/bh_state_manager"
 local construction = require "bh_dynamic_arrivals_board/bh_construction_hooks"
@@ -15,7 +16,7 @@ end
 
 local function getClosestTerminal(transform)
   return log.timed("getClosestTerminal", function()
-    local position = bhm.transformVec(vec3.new(0, 0, 0), transform)
+    local position = maths.transformVec(vec3.new(0, 0, 0), transform)
     local radius = 50
     local height = 10
 
@@ -82,14 +83,14 @@ local function getClosestTerminal(transform)
 
         for k, v in pairs(station.terminals) do
           for _, p in ipairs(v.personEdges) do
-            local distance = bhtp.distanceFromEdge(position, p)
+            local distance = tpnetUtils.distanceFromEdge(position, p)
             if distance and distance < shortestDistance then
               applyClosest(distance, k)
             end
           end
 
           if #v.personEdges == 0 then -- bus stops don't have personEdges so use the vehicle node
-            local distance = bhtp.distanceFromNode(position, v.vehicleNodeId)
+            local distance = tpnetUtils.distanceFromNode(position, v.vehicleNodeId)
             if distance and distance < shortestDistance then
               applyClosest(distance, k)
             end
@@ -99,70 +100,22 @@ local function getClosestTerminal(transform)
     end
 
     if closestEntity then
-      -- I hoped this check below would work for buses but the line API doesn't seem to return anything for non-zero terminals on street bus stops..
-      -- which when there is a stop on both sides of the street with different destinations is obviously a problem. Maybe I am missing something, will consult the API docs.
-      
-      --[[if closestStationGroupObj and #closestStationGroupObj.stations > 1 then
+      local stationIdx = nil
+      if closestStationGroupObj and #closestStationGroupObj.stations > 1 then
         -- this is likely a bus stop or something where each "station" has one terminal and the game uses the station group for multiple terminals
         for idx, station in ipairs(closestStationGroupObj.stations) do
           if station == closestEntity then
-            closestTerminal = idx - 1 -- assume the terminals are in order of the station group
+            stationIdx = idx - 1 -- assume the terminals are in order of the station group
           end
         end
-      end]]
+      end
 
-      log.message("Found station " .. closestEntity .. " terminal " .. closestTerminal .. " via a transport node " .. tostring(shortestDistance) .. "m away")
-      return { station = closestEntity, stationGroup = closestStationGroup, terminal = closestTerminal, auto = true }
+      log.message("Found station " .. closestEntity .. " stationIdx " .. stationIdx .. ", terminal " .. closestTerminal .. " via a transport node " .. tostring(shortestDistance) .. "m away")
+      return { station = closestEntity, stationIdx = stationIdx, stationGroup = closestStationGroup, terminal = closestTerminal, auto = true }
     else
       return nil
     end
   end)
-end
-
-local function calculateLineStopTermini(line)
-  local lineStops = line.stops
-  local stops = {}
-  local visitedStations = {}
-  local legStart = 1
-
-  local function setLegTerminus(start, length, terminus)
-    for i = start, start + length - 1 do
-      stops[i] = terminus
-    end
-  end
-
-  for stopIndex, stop in ipairs(lineStops) do
-    if visitedStations[stop.stationGroup] then
-      setLegTerminus(legStart, stopIndex - 2, stopIndex - 1)
-      legStart = stopIndex - 1
-      visitedStations = {}
-    end
-
-    visitedStations[stop.stationGroup] = true
-  end
-
-  if legStart == 1 then
-    -- route is direct (there are no repeated stops on the way back)
-    setLegTerminus(legStart, #lineStops - legStart, #lineStops)
-    stops[#lineStops] = 1
-  else
-    setLegTerminus(legStart, #lineStops - legStart + 1, 1)
-  end
-  return stops
-end
-
-local function calculateTimeUntilStop(vehicle, stopIdx, stopsAway, nStops, averageSectionTime, currentTime)
-  local idx = (stopIdx - 2) % nStops + 1
-  local segTotal = 0
-  for _ = 1, stopsAway + 1 do
-    local seg = vehicle.sectionTimes[idx]
-    segTotal = segTotal + (seg or averageSectionTime)
-    idx = (idx - 2) % nStops + 1
-  end
-  segTotal = segTotal * 1000
-
-  local timeSinceLastDeparture = currentTime - vehicle.lineStopDepartures[idx % nStops + 1]
-  return math.ceil(segTotal - timeSinceLastDeparture)
 end
 
 local selectedObject
@@ -183,95 +136,79 @@ local function getNextArrivals(stationTerminal, numArrivals, time)
 
   if not stationTerminal then return arrivals end
 
-  local lineStops
-  if stationTerminal.terminal ~= nil then
-    lineStops = api.engine.system.lineSystem.getLineStopsForTerminal(stationTerminal.station, stationTerminal.terminal)
-  else
-    lineStops = api.engine.system.lineSystem.getLineStopsForStation(stationTerminal.station)
+  local lineStops = api.engine.system.lineSystem.getLineStops(stationTerminal.stationGroup)
+  if not lineStops then return arrivals end
+
+  local uniqueLines = {}
+  for _, line in pairs(lineStops) do
+    uniqueLines[line] = line
   end
   
-  if lineStops then
-    local uniqueLines = {}
-    for _, line in pairs(lineStops) do
-      uniqueLines[line] = line
-    end
-    
-    for _, line in pairs(uniqueLines) do
-      local lineData = api.engine.getComponent(line, api.type.ComponentType.LINE)
-      if lineData then
-        local lineTermini = calculateLineStopTermini(lineData) -- this will eventually be done in a slower engine loop to save performance
-        local terminalStopIndex = {}
-        local nStops = #lineData.stops
-        
-        for stopIdx, stop in ipairs(lineData.stops) do
-          if stop.stationGroup == stationTerminal.stationGroup and (stationTerminal.terminal == nil or stationTerminal.terminal == stop.terminal) then
-            terminalStopIndex[stop.terminal] = stopIdx
-          end
-        end
-
-        local vehicles = api.engine.system.transportVehicleSystem.getLineVehicles(line)
-        if vehicles then
-          for _, veh in ipairs(vehicles) do
-            local vehicle = api.engine.getComponent(veh, api.type.ComponentType.TRANSPORT_VEHICLE)
-            if vehicle then
-              local lineDuration = 0
-              for _, sectionTime in ipairs(vehicle.sectionTimes) do
-                lineDuration = lineDuration + sectionTime
-                if sectionTime == 0 then
-                  lineDuration = 0
-                  break -- early out if we dont have full line duration data. we need to calculate a different (less accurate) way
-                end
+  for _, line in pairs(uniqueLines) do
+    local lineData = api.engine.getComponent(line, api.type.ComponentType.LINE)
+    if lineData then
+      local lineTermini = lineUtils.calculateLineStopTermini(lineData) -- this will eventually be done in a slower engine loop to save performance
+      local terminalStopIndex = lineUtils.findTerminalIndices(lineData, stationTerminal)
+      local nStops = #lineData.stops
+      
+      local vehicles = api.engine.system.transportVehicleSystem.getLineVehicles(line)
+      if vehicles then
+        for _, veh in ipairs(vehicles) do
+          local vehicle = api.engine.getComponent(veh, api.type.ComponentType.TRANSPORT_VEHICLE)
+          if vehicle then
+            local lineDuration = 0
+            for _, sectionTime in ipairs(vehicle.sectionTimes) do
+              lineDuration = lineDuration + sectionTime
+              if sectionTime == 0 then
+                lineDuration = 0
+                break -- early out if we dont have full line duration data. we need to calculate a different (less accurate) way
               end
+            end
 
-              --[[if selectedObject == veh then
-                debugPrint({ terminals = terminalStopIndex, sectionTimes = vehicle.sectionTimes, stopDepartures = vehicle.lineStopDepartures })
-              end]]
-
-              local function blah(str, val)
-                if selectedObject == veh then
-                  print(str .. " = " .. val)
-                end
+            local function blah(str, val)
+              if selectedObject == veh then
+                print(str .. " = " .. val)
               end
+            end
 
-              if lineDuration == 0 then
-                -- vehicle hasn't run a full route yet, so fall back to less accurate (?) method
-                -- calculate line duration by multiplying the number of vehicles by the line frequency
-                local lineEntity = game.interface.getEntity(line)
-                lineDuration = (1 / lineEntity.frequency) * #vehicles
-              end
+            if lineDuration == 0 then
+              -- vehicle hasn't run a full route yet, so fall back to less accurate (?) method
+              -- calculate line duration by multiplying the number of vehicles by the line frequency
+              local lineEntity = game.interface.getEntity(line)
+              lineDuration = (1 / lineEntity.frequency) * #vehicles
+            end
 
-              -- and calculate an average section time by dividing by the number of stops
-              local averageSectionTime = lineDuration / nStops
+            -- and calculate an average section time by dividing by the number of stops
+            local averageSectionTime = lineDuration / nStops
 
-              --log.object("vehicle_" .. veh, vehicle)
-              for terminalIdx, stopIdx in pairs(terminalStopIndex) do
-                local stopsAway = (stopIdx - vehicle.stopIndex - 1) % nStops
+            --log.object("vehicle_" .. veh, vehicle)
+            for terminalIdx, stopIdx in pairs(terminalStopIndex) do
+              local stopsAway = (stopIdx - vehicle.stopIndex - 1) % nStops
 
-                -- using lineStopDepartures[stopIdx] + lineDuration seems simple but requires at least one full loop and still isn't always correct if there's bunching.
-                -- so instead, using stopsAway, add up the sectionTimes of the stops between there and here, and subtract the diff of now - stopsAway departure time.
-                -- lastLineStopDeparture seems to be inaccurate.
-                --local expectedArrivalTime = vehicle.lineStopDepartures[stopIdx] + math.ceil(lineDuration) * 1000
+              -- using lineStopDepartures[stopIdx] + lineDuration seems simple but requires at least one full loop and still isn't always correct if there's bunching.
+              -- so instead, using stopsAway, add up the sectionTimes of the stops between there and here, and subtract the diff of now - stopsAway departure time.
+              -- lastLineStopDeparture seems to be inaccurate.
+              --local expectedArrivalTime = vehicle.lineStopDepartures[stopIdx] + math.ceil(lineDuration) * 1000
 
-                local timeUntilArrival = calculateTimeUntilStop(vehicle, stopIdx, stopsAway, nStops, averageSectionTime, time)
-                blah("[Stop " .. stopIdx .. "]: timeUntilArrival", timeUntilArrival)
-                local expectedArrivalTime = time + timeUntilArrival
+              local timeUntilArrival = lineUtils.calculateTimeUntilStop(vehicle, stopIdx, stopsAway, nStops, averageSectionTime, time)
+              blah("[Stop " .. stopIdx .. "]: timeUntilArrival", timeUntilArrival)
+              local expectedArrivalTime = time + timeUntilArrival
 
+              arrivals[#arrivals+1] = {
+                terminalId = terminalIdx,
+                destination = lineData.stops[lineTermini[stopIdx]].stationGroup,
+                arrivalTime = expectedArrivalTime,
+                stopsAway = stopsAway
+              }
+
+              if #vehicles == 1 and lineDuration > 0 then
+                -- if there's only one vehicle, make a second arrival eta + an entire line duration
                 arrivals[#arrivals+1] = {
                   terminalId = terminalIdx,
                   destination = lineData.stops[lineTermini[stopIdx]].stationGroup,
-                  arrivalTime = expectedArrivalTime,
+                  arrivalTime = math.ceil(expectedArrivalTime + lineDuration * 1000),
                   stopsAway = stopsAway
                 }
-
-                if #vehicles == 1 and lineDuration > 0 then
-                  -- if there's only one vehicle, make a second arrival eta + an entire line duration
-                  arrivals[#arrivals+1] = {
-                    terminalId = terminalIdx,
-                    destination = lineData.stops[lineTermini[stopIdx]].stationGroup,
-                    arrivalTime = math.ceil(expectedArrivalTime + lineDuration * 1000),
-                    stopsAway = stopsAway
-                  }
-                end
               end
             end
           end
