@@ -6,99 +6,99 @@ local styles = { "digital_display", "digital_display_nopole", "digital_display_f
 
 -- I use a utility function to join the param label registered with the engine, with the individual param names
 local function configKey(name)
-	return "bh_digital_display_" .. name
+  return "bh_digital_display_" .. name
 end
 
 local function mdl(model)
-	return "bh_dynamic_arrivals_board/bh_manchester_metrolink_" .. model .. ".mdl"
+  return "bh_dynamic_arrivals_board/bh_manchester_metrolink_" .. model .. ".mdl"
 end
 
 local function makeParams()
-	local params = {}
+  local params = {}
 
-	params[#params+1] = {
-		key = configKey("style"),
-		name = _("Style"),
-		uiType = "ICON_BUTTON",
-		values = utils.parameterIcons(styles)
-	}
+  params[#params+1] = {
+    key = configKey("style"),
+    name = _("Style"),
+    uiType = "ICON_BUTTON",
+    values = utils.parameterIcons(styles)
+  }
 
-	params[#params+1] = {
-		key = configKey("snapTrackPlatformAlign"),
-		name = _("Snapping Align"),
-		values = { _("Free"), _("Platform") },
-		defaultIndex = 1
-	}
+  params[#params+1] = {
+    key = configKey("snapTrackPlatformAlign"),
+    name = _("Snapping Align"),
+    values = { _("Free"), _("Platform") },
+    defaultIndex = 1
+  }
 
-	-- since the terminal placement logic is not perfect, provide a param to override the terminal this sign is linked to
-	utils.makeTerminalOverrideParam(params, configKey)
+  -- since the terminal placement logic is not perfect, provide a param to override the terminal this sign is linked to
+  utils.makeTerminalOverrideParam(params, configKey)
 
-	utils.makeRotateParams(params, configKey)
-	utils.makeOffsetParams(params, configKey)
+  utils.makeRotateParams(params, configKey)
+  utils.makeOffsetParams(params, configKey)
 
-	return params
+  return params
 end
 
 function data()
 
-	return { 
-		type = "ASSET_TRACK",
-		description = {
-			name = _("Dynamic Arrivals Single Terminal"),
-			description = _("A digital display showing the next two approaching trains to a single terminal"),
-			icon = "ui/construction/asset/bh_dynamic_arrivals_board/bh_digital_display_construction@2x.tga"
-		},
-		availability = {},
-		buildMode = "SINGLE",
-		categories = { "badgerrhax" },
-		order = 13,
-		skipCollision = true,
-		autoRemovable = false,
-		params = makeParams(),
-		
-		updateFn = function(params)
-			local result = { }
-			result.models = {}
+  return { 
+    type = "ASSET_TRACK",
+    description = {
+      name = _("Dynamic Arrivals Single Terminal"),
+      description = _("A digital display showing the next two approaching trains to a single terminal"),
+      icon = "ui/construction/asset/bh_dynamic_arrivals_board/bh_digital_display_construction@2x.tga"
+    },
+    availability = {},
+    buildMode = "SINGLE",
+    categories = { "badgerrhax" },
+    order = 13,
+    skipCollision = true,
+    autoRemovable = false,
+    params = makeParams(),
+    
+    updateFn = function(params)
+      local result = { }
+      result.models = {}
 
-			local align = params[configKey("snapTrackPlatformAlign")] or 1
+      local align = params[configKey("snapTrackPlatformAlign")] or 1
 
-			local rotate = utils.readRotateParams(params, configKey)
-			if align ~= 0 then
-				rotate.x = rotate.x + math.pi / 2
-			end
+      local rotate = utils.readRotateParams(params, configKey)
+      if align ~= 0 then
+        rotate.x = rotate.x + math.pi / 2
+      end
 
-			local offset = utils.readOffsetParams(params, configKey)
-			if align ~= 0 then
-				offset.y = offset.y - 4.95
-				offset.z = offset.z + 0.54
-			end
+      local offset = utils.readOffsetParams(params, configKey)
+      if align ~= 0 then
+        offset.y = offset.y - 4.95
+        offset.z = offset.z + 0.54
+      end
 
-			local style = styles[params[configKey("style")]+1]
+      local style = styles[params[configKey("style")]+1]
       local model = mdl(style)
       result.models[#result.models + 1] = {
         id = model, transf = constructionutil.rotateTransf(params, transf.rotZYXTransl(rotate, offset))
       }
 
-			local labelValues = {
-				params[configKey("arrival_1_dest")] or "", -- these are some of the params provided by the arrivals engine when updating this construction
-				params[configKey("arrival_2_dest")] or "",
-				params[configKey("time_string")] or "",
-				params[configKey("arrival_1_time")] or "",
-				params[configKey("arrival_2_time")] or "",
-			}
+      local labelValues = {
+        params[configKey("arrival_1_dest")] or "", -- these are some of the params provided by the arrivals engine when updating this construction
+        params[configKey("arrival_2_dest")] or "",
+        params[configKey("time_string")] or "",
+        params[configKey("arrival_1_time")] or "",
+        params[configKey("arrival_2_time")] or "",
+      }
 
-			result.labelText = {
-				[#result.models-1] = utils.joinTables(labelValues, labelValues) -- our sign is 2-sided with same values on both
-			}
+      result.labelText = {
+        [#result.models-1] = utils.joinTables(labelValues, labelValues) -- our sign is 2-sided with same values on both
+      }
 
-			result.terrainAlignmentLists = { { type = "EQUAL", faces = {} }}
-			result.groundFaces = {}
+      result.terrainAlignmentLists = { { type = "EQUAL", faces = {} }}
+      result.groundFaces = {}
 
       -- specifically to make the game treat this as a construction
-			result.personCapacity = { type = "RESIDENTIAL", capacity = 1, }
+      result.personCapacity = { type = "RESIDENTIAL", capacity = 1, }
 
-			return result
-		end
-	}
+      return result
+    end
+  }
 
 end

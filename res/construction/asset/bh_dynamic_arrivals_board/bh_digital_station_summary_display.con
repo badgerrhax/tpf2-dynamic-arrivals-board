@@ -3,96 +3,96 @@ local transf = require "transf"
 local utils = require "bh_dynamic_arrivals_board/bh_utils"
 
 local function configKey(name)
-	return "bh_summary_display_" .. name
+  return "bh_summary_display_" .. name
 end
 
 local function makeParams()
-	local params = {}
+  local params = {}
 
-	params[#params+1] = {
-		key = configKey("snapTrackPlatformAlign"),
-		name = _("Snapping Align"),
-		values = { _("Free"), _("Platform") },
-		defaultIndex = 1
-	}
+  params[#params+1] = {
+    key = configKey("snapTrackPlatformAlign"),
+    name = _("Snapping Align"),
+    values = { _("Free"), _("Platform") },
+    defaultIndex = 1
+  }
 
-	utils.makeRotateParams(params, configKey)
-	utils.makeOffsetParams(params, configKey)
+  utils.makeRotateParams(params, configKey)
+  utils.makeOffsetParams(params, configKey)
 
-	return params
+  return params
 end
 
 function data()
 
-	return { 
-		type = "ASSET_TRACK",
-		description = {
-			name = _("Dynamic Arrivals Summary Board"),
-			description = _("A digital display showing approaching trains to all terminals at the nearest station"),
-			icon = "ui/construction/asset/bh_dynamic_arrivals_board/bh_digital_summary_construction@2x.tga"
-		},
-		availability = {},
-		buildMode = "SINGLE",
-		categories = { "badgerrhax" },
-		order = 13,
-		skipCollision = true,
-		autoRemovable = false,
-		params = makeParams(),
-		
-		updateFn = function(params)
-			local result = { }
-			result.models = {}
+  return { 
+    type = "ASSET_TRACK",
+    description = {
+      name = _("Dynamic Arrivals Summary Board"),
+      description = _("A digital display showing approaching trains to all terminals at the nearest station"),
+      icon = "ui/construction/asset/bh_dynamic_arrivals_board/bh_digital_summary_construction@2x.tga"
+    },
+    availability = {},
+    buildMode = "SINGLE",
+    categories = { "badgerrhax" },
+    order = 13,
+    skipCollision = true,
+    autoRemovable = false,
+    params = makeParams(),
+    
+    updateFn = function(params)
+      local result = { }
+      result.models = {}
 
-			local align = params[configKey("snapTrackPlatformAlign")] or 1
+      local align = params[configKey("snapTrackPlatformAlign")] or 1
 
-			local rotate = utils.readRotateParams(params, configKey)
-			if align ~= 0 then
-				rotate.x = rotate.x + math.pi / 2
-			end
+      local rotate = utils.readRotateParams(params, configKey)
+      if align ~= 0 then
+        rotate.x = rotate.x + math.pi / 2
+      end
 
-			local offset = utils.readOffsetParams(params, configKey)
-			if align ~= 0 then
-				offset.y = offset.y - 4.95
-				offset.z = offset.z + 0.54
-			end
+      local offset = utils.readOffsetParams(params, configKey)
+      if align ~= 0 then
+        offset.y = offset.y - 4.95
+        offset.z = offset.z + 0.54
+      end
 
       local model = "bh_dynamic_arrivals_board/bh_dynamic_tall_board.mdl"
       result.models[#result.models + 1] = {
         id = model, transf = constructionutil.rotateTransf(params, transf.rotZYXTransl(rotate, offset))
       }
 
-			local labelValues = {}
-			for i = 1, 29 do
-				labelValues[i] = ""
-			end
+      local labelValues = {}
+      for i = 1, 29 do
+        labelValues[i] = ""
+      end
 
-			labelValues[1] = "Destination"
-			labelValues[2] = "Plat"
-			labelValues[3] = "Time"
-			labelValues[28] = params[configKey("time_string")] or ""
+      labelValues[1] = "Destination"
+      labelValues[2] = "Plat"
+      labelValues[3] = "Time"
+      labelValues[28] = params[configKey("time_string")] or ""
 
-			local numArrivals = params[configKey("num_arrivals")] or 0
-			if numArrivals > 0 then
-				for i = 1, numArrivals do
-					local labelIndexStart = 3 * i + 1
-					labelValues[labelIndexStart] = params[configKey("arrival_" .. i .. "_dest")] or ""
-					labelValues[labelIndexStart+1] = tostring(params[configKey("arrival_" .. i .. "_terminal")]) or ""
-					labelValues[labelIndexStart+2] = params[configKey("arrival_" .. i .. "_time")] or ""
-				end
-			end
+      local numArrivals = params[configKey("num_arrivals")] or 0
+      if numArrivals > 0 then
+        for i = 1, numArrivals do
+          local labelIndexStart = 3 * i + 1
+          labelValues[labelIndexStart] = params[configKey("arrival_" .. i .. "_dest")] or ""
+          labelValues[labelIndexStart+1] = tostring(params[configKey("arrival_" .. i .. "_terminal")]) or ""
+          labelValues[labelIndexStart+2] = params[configKey("arrival_" .. i .. "_time")] or ""
+        end
+      end
 
-			result.labelText = {
-				[#result.models-1] = labelValues
-			}
+      result.labelText = {
+        [#result.models-1] = labelValues
+      }
 
-			result.terrainAlignmentLists = { { type = "EQUAL", faces = {} }}
-			result.groundFaces = {}
+      result.terrainAlignmentLists = { { type = "EQUAL", faces = {} }}
+      result.groundFaces = {}
 
       -- specifically to make the game treat this as a construction
-			result.personCapacity = { type = "RESIDENTIAL", capacity = 1, }
+      result.personCapacity = { type = "RESIDENTIAL", capacity = 1, }
 
-			return result
-		end
-	}
+      return result
+    end
+  }
 
 end
