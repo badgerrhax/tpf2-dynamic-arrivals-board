@@ -63,8 +63,11 @@ local function getNearbyStationGroups(position)
         return
       end
 
-      for _, id in pairs(ownerConstruction.stations) do
-        stationGroups[id] = true
+      for _, stationId in pairs(ownerConstruction.stations) do
+        local stationGroup = api.engine.system.stationGroupSystem.getStationGroup(stationId)
+        if stationGroup then
+          stationGroups[stationGroup] = true
+        end
       end
     elseif api.engine.getComponent(entity, api.type.ComponentType.STATION) then
       -- fall back for non-rail stations - i.e. bus stops.
