@@ -1,122 +1,9 @@
-local vec3 = require "vec3"
-local transf = require "transf"
-
-local maths = require "bh_dynamic_arrivals_board/bh_maths"
-local tpnetUtils = require "bh_dynamic_arrivals_board/bh_tpnet_utils"
 local lineUtils = require "bh_dynamic_arrivals_board/bh_line_utils"
 
 local stateManager = require "bh_dynamic_arrivals_board/bh_state_manager"
 local construction = require "bh_dynamic_arrivals_board/bh_construction_hooks"
 
 local log = require "bh_dynamic_arrivals_board/bh_log"
-
-local function validEntity(id)
-  return type(id) == "number" and id > 0 and api.engine.entityExists(id)
-end
-
-local function getClosestTerminal(transform)
-  return log.timed("getClosestTerminal", function()
-    local position = maths.transformVec(vec3.new(0, 0, 0), transform)
-    local radius = 50
-    local height = 10
-
-    local box = api.type.Box3.new(
-      api.type.Vec3f.new(position.x - radius, position.y - radius, position.z - height),
-      api.type.Vec3f.new(position.x + radius, position.y + radius, position.z + height)
-    )
-
-    local stations = {}
-
-    api.engine.system.octreeSystem.findIntersectingEntities(box, function(entity, boundingVolume)
-      xpcall(function()
-        if not entity then return end
-
-        if api.engine.getComponent(entity, api.type.ComponentType.BASE_EDGE_TRACK) then
-          local conId = api.engine.system.streetConnectorSystem.getConstructionEntityForEdge(entity)
-          if validEntity(conId) then
-            local con = api.engine.getComponent(conId, api.type.ComponentType.CONSTRUCTION)
-            if con then
-              for _, id in pairs(con.stations) do
-                stations[id] = true
-              end
-            end
-          end
-        elseif api.engine.getComponent(entity, api.type.ComponentType.STATION) then
-          -- fall back for non-rail stations - i.e. bus stops.
-          
-          -- with a bit more work, it looks like it might be possible to use the bounding volume of each detected station to prioritise
-          -- which one to choose. e.g bus station next to train station and putting summary signs on front of train station,
-          -- it could use the fact of being inside the bbox to prioritise that station, and if it is not inside any,
-          -- fall back to the regular distance calc, or perhaps find the distance to the nearest edge of each bounding volume.
-          -- of course the accuracy of this depends on transforming the AABB to OBB - could use the construction transf to help
-          --[[local bboxMin = boundingVolume.bbox.min
-          local bboxMax = boundingVolume.bbox.max
-
-          if position.x > bboxMin.x and position.y > bboxMin.y and position.z > (bboxMin.z - height) and
-            position.x < bboxMax.x and position.y < bboxMax.y and position.z < (bboxMax.z + height) then
-            -- inside bbox = higher priority station
-          end]]
-          stations[entity] = true
-        end
-      end, function(err) print(err) end)
-    end)
-
-    local shortestDistance = 9999
-    local closestEntity
-    local closestTerminal
-    local closestStationGroup
-    local closestStationGroupObj
-
-    for entity, _ in pairs(stations) do
-      local station = api.engine.getComponent(entity, api.type.ComponentType.STATION)
-      if station then
-        local stationGroup = api.engine.system.stationGroupSystem.getStationGroup(entity)
-        local stationGroupObj = api.engine.getComponent(stationGroup, api.type.ComponentType.STATION_GROUP)
-
-        local function applyClosest(distance, k)
-          shortestDistance = distance
-          closestEntity = entity
-          closestTerminal = k - 1
-          closestStationGroup = stationGroup
-          closestStationGroupObj = stationGroupObj
-        end
-
-        for k, v in pairs(station.terminals) do
-          for _, p in ipairs(v.personEdges) do
-            local distance = tpnetUtils.distanceFromEdge(position, p)
-            if distance and distance < shortestDistance then
-              applyClosest(distance, k)
-            end
-          end
-
-          if #v.personEdges == 0 then -- bus stops don't have personEdges so use the vehicle node
-            local distance = tpnetUtils.distanceFromNode(position, v.vehicleNodeId)
-            if distance and distance < shortestDistance then
-              applyClosest(distance, k)
-            end
-          end
-        end
-      end
-    end
-
-    if closestEntity then
-      local stationIdx = nil
-      if closestStationGroupObj and #closestStationGroupObj.stations > 1 then
-        -- this is likely a bus stop or something where each "station" has one terminal and the game uses the station group for multiple terminals
-        for idx, station in ipairs(closestStationGroupObj.stations) do
-          if station == closestEntity then
-            stationIdx = idx - 1 -- assume the terminals are in order of the station group
-          end
-        end
-      end
-
-      log.message("Found station " .. closestEntity .. " stationIdx " .. tostring(stationIdx) .. ", terminal " .. closestTerminal .. " via a transport node " .. tostring(shortestDistance) .. "m away")
-      return { station = closestEntity, stationIdx = stationIdx, stationGroup = closestStationGroup, terminal = closestTerminal, auto = true }
-    else
-      return nil
-    end
-  end)
-end
 
 local selectedObject
 
@@ -261,22 +148,6 @@ local function formatArrivals(arrivals, time)
   return ret
 end
 
-local function configureSignLink(sign, state, config)
-  local xform = sign.transf
-
-  local stationTerminal = getClosestTerminal(xform)
-
-  if stationTerminal then
-    log.object("Closest Terminal", { ClosestTerminal = stationTerminal })
-    if not config.singleTerminal then
-      stationTerminal.terminal = nil
-    end
-    state.stationTerminal = stationTerminal
-  end
-
-  state.linked = true
-end
-
 local function update()
   local state = stateManager.loadState()
   local time = api.engine.getComponent(api.engine.util.getWorld(), api.type.ComponentType.GAME_TIME).gameTime
@@ -309,38 +180,45 @@ local function update()
         local oldConstructions = {}
 
         log.timed("sign processing", function()
-          for k, v in pairs(state.placed_signs) do
-            local sign = api.engine.getComponent(k, api.type.ComponentType.CONSTRUCTION)
+          for signEntity, signData in pairs(state.placed_signs) do
+            local sign = api.engine.getComponent(signEntity, api.type.ComponentType.CONSTRUCTION)
             if sign then
               local config = construction.getRegisteredConstructions()[sign.fileName]
               if not config then config = {} end
               if not config.labelParamPrefix then config.labelParamPrefix = "" end
               local function param(name) return config.labelParamPrefix .. name end
 
+              local stationTerminal
+              if #signData then
+                stationTerminal = signData[1] -- todo actually calculate for each connected station, this is just here right now to support the new save state version
+              end
+
+              -- TODO: re-enable this
               -- update the linked terminal as it might have been changed by the player in the construction params
-              local terminalOverride = sign.params[param("terminal_override")] or 0
+              --[[local terminalOverride = sign.params[param("terminal_override")] or 0
               if v.stationTerminal and not v.stationTerminal.auto and terminalOverride == 0 then
                 -- player may have changed the construction from a specific terminal to auto, so we need to recalculate the closest one
                 v.linked = false
-              end
+              end]]
 
-              if not v.linked then
+              --[[if not v.linked then
                 configureSignLink(sign, v, config)
-              end
+              end]]
 
-              if v.stationTerminal and terminalOverride > 0 then
+              -- TODO: re-enable this
+              --[[if v.stationTerminal and terminalOverride > 0 then
                 v.stationTerminal.terminal = terminalOverride - 1
                 v.stationTerminal.auto = false
-              end
+              end]]
 
               local arrivals = {}
 
-              if v.stationTerminal and config.maxArrivals > 0 then
-                local nextArrivals = getNextArrivals(v.stationTerminal, config.maxArrivals, time)
+              if stationTerminal and config.maxArrivals > 0 then
+                local nextArrivals = getNextArrivals(stationTerminal, config.maxArrivals, time)
 
-                if selectedObject == k then
+                if selectedObject == signEntity then
                   log.object("Time", time)
-                  log.object("stationTerminal", v.stationTerminal)
+                  log.object("stationTerminal", stationTerminal)
                   log.object("nextArrivals", nextArrivals)
                 end
 
@@ -380,7 +258,7 @@ local function update()
               newCon.playerEntity = api.engine.util.getPlayer()
 
               newConstructions[#newConstructions+1] = newCon
-              oldConstructions[#oldConstructions+1] = k
+              oldConstructions[#oldConstructions+1] = signEntity
             end
           end
         end)
@@ -408,17 +286,17 @@ end
 
 local function handleEvent(src, id, name, param)
   if src == "bh_gui_engine.lua" then
-    if name == "add_display_construction" then
-      local state = stateManager.getState()
-      state.placed_signs[param] = {}
-      log.message("Added display construction id " .. tostring(param))
-    elseif name == "remove_display_construction" then
+    if name == "remove_display_construction" then
       local state = stateManager.getState()
       state.placed_signs[param] = nil
       log.message("Removed display construction id " .. tostring(param))
     elseif name == "select_object" then
       debugPrint({ selectedObject = param })
       selectedObject = param
+    elseif name == "configure_display_construction" then
+      debugPrint({ configure_display_construction = param })
+      local state = stateManager.getState()
+      state.placed_signs[param.signEntity] = param.signData
     end
   end
 end

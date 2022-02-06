@@ -29,7 +29,7 @@ end
 -- can update the target entity without having to recreate the window (which is the thing that owns the locate button)
 local lastSelectedEntity = {}
 
-local function ConfigureSign(signEntity)
+local function ConfigureSign(signEntity, nearbyStationGroupData, callbacks)
   local width = 400
 
   local layout = api.gui.layout.BoxLayout.new("VERTICAL")
@@ -66,25 +66,12 @@ local function ConfigureSign(signEntity)
   window:setTitle(_("ConfigureSignWindowTitle") .. " [" .. tostring(signEntity) .. "]")
   window:setVisible(true, false)
 
-  local onRescan = function()
-    -- TODO: implement this
-    print("rescan")
+  local stationTable = guiComp.createStationTable("DynamicArrivalsStationPick", callbacks.stationToggle)
+  local header = guiComp.createStationPickerHeader("DynamicArrivalsStationPick", callbacks.onRescan)
+
+  for _, station in ipairs(nearbyStationGroupData) do
+    stationTable.addStationGroup(station.stationGroup, station.displaying, station.distance)
   end
-
-  local toggleCallback = function(toggled, id)
-    -- TODO: implement this
-    print("Check " .. tostring(id) .. " " .. tostring(toggled) .. " for sign " .. tostring(signEntity))
-  end
-
-  local header = guiComp.createStationPickerHeader("DynamicArrivalsStationPick", onRescan)
-  local stationTable = guiComp.createStationTable("DynamicArrivalsStationPick", toggleCallback)
-
-  -- populate with some dummy data to test the gui
-  stationTable.addStationGroup(12345)
-  stationTable.addStationGroup(67890)
-  stationTable.addStationGroup(43523)
-  stationTable.addStationGroup(12312)
-  stationTable.addStationGroup(23254)
 
   local scrollArea = api.gui.comp.ScrollArea.new(api.gui.comp.TextView.new("Stations"), "DynamicArrivals.SignConfig.Window.ScrollArea")
   scrollArea:setMinimumSize(api.gui.util.Size.new(width, 130))

@@ -240,6 +240,10 @@ local function safeCall(callback)
   return wrapped
 end
 
+local function validEntity(id)
+  return type(id) == "number" and id > 0 and api.engine.entityExists(id)
+end
+
 return {
   makeOffsetParams = makeOffsetParams,
   readOffsetParams = readOffsetParams,
@@ -251,4 +255,5 @@ return {
   parameterIcons = parameterIcons,
   joinTables = joinTables,
   safeCall = safeCall,
+  validEntity = validEntity
 }

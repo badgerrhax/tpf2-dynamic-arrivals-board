@@ -36,6 +36,10 @@ end,
 
 -------------- GUI state
 
+guiUpdate = function()
+  xpcall(guiEngine.update, errorHandler)
+end,
+
 guiHandleEvent = function(id, name, param)
   xpcall(function() guiEngine.handleEvent(id, name, param) end, errorHandler)
 end,

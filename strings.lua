@@ -6,6 +6,7 @@ function data()
       StationPickRefreshTooltipText = "Refresh nearby stations",
       StationPickTableCheckHeader = "Display",
       StationPickTableNameHeader = "Station",
+      StationPickTableDistanceHeader = "Distance",
     }
   }
 end
