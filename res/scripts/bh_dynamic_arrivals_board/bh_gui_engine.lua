@@ -1,6 +1,7 @@
 -- State is pretty much read-only here
 local stateManager = require "bh_dynamic_arrivals_board/bh_state_manager"
 local construction = require "bh_dynamic_arrivals_board/bh_construction_hooks"
+local guiWindows = require "bh_dynamic_arrivals_board/bh_gui_windows"
 
 local function sendScriptEvent(id, msg, param)
   api.cmd.sendCommand(api.cmd.make.sendScriptEvent("bh_gui_engine.lua", id, msg, param))
@@ -12,6 +13,13 @@ local function handleEvent(id, name, param)
 
     if name == 'select' then
       sendScriptEvent(id, "select_object", param)
+
+      -- if we select a sign, show a gui to change stuff that can't be done in the construction params
+      local sign = api.engine.getComponent(param, api.type.ComponentType.CONSTRUCTION)
+      if sign and construction.getRegisteredConstructions()[sign.fileName] then
+        -- commented out until fully functional
+        --guiWindows.ConfigureSign(param)
+      end
     end
 
     if name == 'builder.apply' then

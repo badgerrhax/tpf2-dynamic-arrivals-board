@@ -222,6 +222,24 @@ local function joinTables(t, t2)
 	return ret
 end
 
+-- returns a function that, when called, captures its arguments and wraps the callback
+-- execution in xpcall, and passes the args on to the callback func.
+-- reduces repeated instances of xpcall everywhere that game callbacks are needed
+local function safeCall(callback)
+	local wrapped = function(...)
+		local args = table.pack(...)
+
+		local success, ret = xpcall(function()
+			return callback(table.unpack(args))
+		end, function(err) print(err) end)
+
+		if success then return ret end
+		return nil
+	end
+
+	return wrapped
+end
+
 return {
   makeOffsetParams = makeOffsetParams,
   readOffsetParams = readOffsetParams,
@@ -231,5 +249,6 @@ return {
 	readRotateParams = readRotateParams,
 	makeTerminalOverrideParam = makeTerminalOverrideParam,
 	parameterIcons = parameterIcons,
-	joinTables = joinTables
+	joinTables = joinTables,
+	safeCall = safeCall,
 }
