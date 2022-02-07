@@ -2,8 +2,9 @@ local lineUtils = require "bh_dynamic_arrivals_board/bh_line_utils"
 
 local stateManager = require "bh_dynamic_arrivals_board/bh_state_manager"
 local construction = require "bh_dynamic_arrivals_board/bh_construction_hooks"
-
+local spatialUtils = require "bh_dynamic_arrivals_board/bh_spatial_utils"
 local log = require "bh_dynamic_arrivals_board/bh_log"
+local utils = require "bh_dynamic_arrivals_board/bh_utils"
 
 local selectedObject
 
@@ -17,27 +18,25 @@ local selectedObject
   }
   sorted in order of arrivalTime (earliest first)
 ]]
-local function getNextArrivals(stationTerminal, numArrivals, time)
+local function getNextArrivals(stationTerminal, time, arrivals) -- output to arrivals
   -- despite how many we want to return, we actually need to look at every vehicle on every line stopping here before we can sort and trim
-  local arrivals = {}
-
-  if not stationTerminal then return arrivals end
+  if not stationTerminal then return end
 
   local lineStops = api.engine.system.lineSystem.getLineStops(stationTerminal.stationGroup)
-  if not lineStops then return arrivals end
+  if not lineStops then return end
 
   local uniqueLines = {}
   for _, line in pairs(lineStops) do
     uniqueLines[line] = line
   end
-  
+
   for _, line in pairs(uniqueLines) do
     local lineData = api.engine.getComponent(line, api.type.ComponentType.LINE)
     if lineData then
       local lineTermini = lineUtils.calculateLineStopTermini(lineData) -- this will eventually be done in a slower engine loop to save performance
       local terminalStopIndex = lineUtils.findTerminalIndices(lineData, stationTerminal)
       local nStops = #lineData.stops
-      
+
       local vehicles = api.engine.system.transportVehicleSystem.getLineVehicles(line)
       if vehicles then
         for _, veh in ipairs(vehicles) do
@@ -103,11 +102,21 @@ local function getNextArrivals(stationTerminal, numArrivals, time)
       end
     end
   end
+end
+
+local function gatherNextArrivals(signData, numArrivals, time)
+  local arrivals = {}
+
+  for _, stationTerminal in ipairs(signData) do
+    if stationTerminal.displaying then
+      getNextArrivals(stationTerminal, time, arrivals)
+    end
+  end
 
   table.sort(arrivals, function(a, b) return a.arrivalTime < b.arrivalTime end)
 
   local ret = {}
-  
+
   for i = 1, numArrivals do
     ret[#ret+1] = arrivals[i]
   end
@@ -148,6 +157,18 @@ local function formatArrivals(arrivals, time)
   return ret
 end
 
+local function refreshAndResyncStations(entityId, oldData)
+  local newData = spatialUtils.getClosestStationGroupsAndTerminal(entityId, false)
+  local displayMap = {}
+  for _, oldST in ipairs(oldData) do
+    displayMap[oldST.stationGroup] = oldST.displaying
+  end
+  for _, newST in ipairs(newData) do
+    newST.displaying = displayMap[newST.stationGroup]
+  end
+  return newData
+end
+
 local function update()
   local state = stateManager.loadState()
   local time = api.engine.getComponent(api.engine.util.getWorld(), api.type.ComponentType.GAME_TIME).gameTime
@@ -180,6 +201,13 @@ local function update()
         local oldConstructions = {}
 
         log.timed("sign processing", function()
+          for signEntity, _ in pairs(state.placed_signs) do
+            if not utils.validEntity(signEntity) then
+              log.message("Sign " .. signEntity .. " no longer exists. Removing data.")
+              state.placed_signs[signEntity] = nil
+            end
+          end
+
           for signEntity, signData in pairs(state.placed_signs) do
             local sign = api.engine.getComponent(signEntity, api.type.ComponentType.CONSTRUCTION)
             if sign then
@@ -188,37 +216,30 @@ local function update()
               if not config.labelParamPrefix then config.labelParamPrefix = "" end
               local function param(name) return config.labelParamPrefix .. name end
 
-              local stationTerminal
-              if #signData then
-                stationTerminal = signData[1] -- todo actually calculate for each connected station, this is just here right now to support the new save state version
-              end
-
-              -- TODO: re-enable this
+              -- TODO: i don't like this the way it is.
               -- update the linked terminal as it might have been changed by the player in the construction params
-              --[[local terminalOverride = sign.params[param("terminal_override")] or 0
-              if v.stationTerminal and not v.stationTerminal.auto and terminalOverride == 0 then
-                -- player may have changed the construction from a specific terminal to auto, so we need to recalculate the closest one
-                v.linked = false
-              end]]
-
-              --[[if not v.linked then
-                configureSignLink(sign, v, config)
-              end]]
-
-              -- TODO: re-enable this
-              --[[if v.stationTerminal and terminalOverride > 0 then
-                v.stationTerminal.terminal = terminalOverride - 1
-                v.stationTerminal.auto = false
-              end]]
+              local terminalOverride = sign.params[param("terminal_override")] or 0
+              if #signData then
+                if signData[1].auto == false and terminalOverride == 0 then
+                  -- player may have changed the construction from a specific terminal to auto, so we need to recalculate the closest one
+                  signData = refreshAndResyncStations(signEntity, signData)
+                  state.placed_signs[signEntity] = signData
+                elseif terminalOverride > 0 then
+                  for _, stationTerminal in ipairs(signData) do
+                    stationTerminal.terminal = terminalOverride - 1
+                    stationTerminal.auto = false
+                  end
+                end
+              end
 
               local arrivals = {}
 
-              if stationTerminal and config.maxArrivals > 0 then
-                local nextArrivals = getNextArrivals(stationTerminal, config.maxArrivals, time)
+              if #signData and config.maxArrivals > 0 then
+                local nextArrivals = gatherNextArrivals(signData, config.maxArrivals, time)
 
                 if selectedObject == signEntity then
                   log.object("Time", time)
-                  log.object("stationTerminal", stationTerminal)
+                  log.object("signData", signData)
                   log.object("nextArrivals", nextArrivals)
                 end
 
@@ -228,8 +249,12 @@ local function update()
               local newCon = api.type.SimpleProposal.ConstructionEntity.new()
 
               local newParams = {}
+              local arrivalParamPrefix = param("arrival_")
               for oldKey, oldVal in pairs(sign.params) do
-                newParams[oldKey] = oldVal
+                -- don't copy auto-arrival params as they may have been removed during this update
+                if string.sub(oldKey, 1, #arrivalParamPrefix) ~= arrivalParamPrefix then
+                  newParams[oldKey] = oldVal
+                end
               end
 
               if config.clock then
@@ -241,7 +266,7 @@ local function update()
 
               for i, a in ipairs(arrivals) do
                 local paramName = ""
-                
+
                 paramName = paramName .. "arrival_" .. i .. "_"
                 newParams[param(paramName .. "dest")] = a.dest
                 newParams[param(paramName .. "time")] = config.absoluteArrivalTime and a.arrivalTimeString or a.etaMinsString

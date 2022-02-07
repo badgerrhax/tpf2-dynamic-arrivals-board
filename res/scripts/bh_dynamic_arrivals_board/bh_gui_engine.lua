@@ -2,7 +2,10 @@
 local stateManager = require("bh_dynamic_arrivals_board/bh_state_manager")
 local construction = require("bh_dynamic_arrivals_board/bh_construction_hooks")
 local guiWindows = require("bh_dynamic_arrivals_board/bh_gui_windows")
-local spatialUtils = require("bh_dynamic_arrivals_board.bh_spatial_utils")
+local spatialUtils = require("bh_dynamic_arrivals_board/bh_spatial_utils")
+local utils = require("bh_dynamic_arrivals_board/bh_utils")
+
+local editingSign
 
 local queuedActions = {}
 local function queueAction(func)
@@ -21,14 +24,23 @@ local function sendConfigureSign(entityId, signData)
   sendScriptEvent("signConfig", "configure_display_construction", params)
 end
 
+local function getConfigForEntity(entityId)
+  if not utils.validEntity(entityId) then return nil end
+
+  local sign = api.engine.getComponent(entityId, api.type.ComponentType.CONSTRUCTION)
+  if not sign then return nil end
+
+  return construction.getRegisteredConstructions()[sign.fileName]
+end
+
 local placedConstruction
-local function presentConfigGui(entityId, nearbyStations, constructionConfig)
+local function presentConfigGui(entityId, nearbyStations)
   local latestData = { nearbyStations = nearbyStations }
 
   local callbacks = {
     onRescan = function()
       queueAction(function()
-        placedConstruction(entityId, true, constructionConfig)
+        placedConstruction(entityId, true)
       end)
     end,
 
@@ -44,10 +56,12 @@ local function presentConfigGui(entityId, nearbyStations, constructionConfig)
     end
   }
 
+  editingSign = entityId
   guiWindows.ConfigureSign(entityId, nearbyStations, callbacks)
 end
 
-placedConstruction = function(entityId, forceGui, constructionConfig)
+placedConstruction = function(entityId, forceGui)
+  local constructionConfig = getConfigForEntity(entityId) or { singleTerminal = true }
   local nearbyStations = spatialUtils.getClosestStationGroupsAndTerminal(entityId, not constructionConfig.singleTerminal)
 
   if #nearbyStations > 0 then
@@ -72,12 +86,10 @@ local function handleEvent(id, name, param)
     sendScriptEvent(id, "select_object", param)
 
     -- if we select a sign, show a gui to change stuff that can't be done in the construction params
-    local sign = api.engine.getComponent(param, api.type.ComponentType.CONSTRUCTION)
-    if sign and construction.isRegistered(sign.fileName) then
+    if getConfigForEntity(param) then
       local signData = state.placed_signs[param]
       if signData then
-        local config = construction.getRegisteredConstructions()[sign.fileName]
-        presentConfigGui(param, signData, config)
+        presentConfigGui(param, signData)
       end
     end
   end
@@ -87,12 +99,14 @@ local function handleEvent(id, name, param)
       local toAdd = param.proposal.toAdd
       if toAdd and toAdd[1] and construction.isRegistered(toAdd[1].fileName) then
         if param.result and param.result[1] then
-          local config = construction.getRegisteredConstructions()[toAdd[1].fileName]
-          placedConstruction(param.result[1], false, config)
+          placedConstruction(param.result[1], false)
         end
       end
       local toRemove = param.proposal.toRemove
       if toRemove and toRemove[1] and state.placed_signs[toRemove[1]] then
+        if editingSign == toRemove[1] then
+          guiWindows.hideConfigureSign()
+        end
         sendScriptEvent(id, "remove_display_construction", toRemove[1])
       end
     end

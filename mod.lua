@@ -3,17 +3,22 @@ local construction = require "bh_dynamic_arrivals_board/bh_construction_hooks"
 function data()
 	return {
 		info = {
-			minorVersion = 2,
+			minorVersion = 3,
 			severityAdd = "WARNING",
 			severityRemove = "WARNING",
 			name = _("Dynamic Arrivals Board [EARLY BETA]"),
 			description = [[
 [h1]EARLY BETA VERSION - EXPECT BUGS AND INCOMPATIBILITIES[/h1]
 At this time I make no promises about feature-completeness or stability.
+
+[b]Game must be paused to delete signs[/b]
+
 Depending on feedback and bugs I may have to rework things that could cause this mod to stop working on earlier save games.
 
 [b]DURING BETA, PLEASE BACK UP YOUR SAVE GAMES BEFORE SAVING THIS MOD IN THEM[/b]
 Pretty good general advice when experimenting with new mods, really :)
+
+[b]Game must be paused to delete signs[/b]
 
 I'm making this available for people to help with testing if they wish.
 
@@ -35,6 +40,12 @@ When I am happy with the quality and performance I will remove all these beta wa
 * = refer to known issues and limitations for clarifications
 - [b]Single Terminal Arrivals Display[/b] - place it on a platform and it will automatically* display the next arriving trains to that platform
 - [b]Station Departures Display[/b] - place within 50m* of a station and it will display up to the next 8 trains and their destinations / platform / departure times
+
+[h1]Extra Configuration[/h1]
+I wanted to try avoiding the need for a GUI but sometimes it is the simplest way. Here's what it provides so far.
+- Appears when placing a sign close to multiple stations, or when you click on an existing sign
+- Allows you to see which stations the sign is displaying, and to change them
+- Allows you to re-scan for nearby stations without having to replace it
 
 [h1]Planned Features[/h1]
 I'm planning on extending the mod to support signs displaying the following type of information

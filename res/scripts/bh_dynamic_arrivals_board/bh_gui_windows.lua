@@ -29,6 +29,13 @@ end
 -- can update the target entity without having to recreate the window (which is the thing that owns the locate button)
 local lastSelectedEntity = {}
 
+local function hideConfigureSign()
+  local window = api.gui.util.getById("DynamicArrivals.SignConfig.Window")
+  if window then
+    window:setVisible(false, false)
+  end
+end
+
 local function ConfigureSign(signEntity, nearbyStationGroupData, callbacks)
   local width = 400
 
@@ -85,5 +92,6 @@ local function ConfigureSign(signEntity, nearbyStationGroupData, callbacks)
 end
 
 return {
-  ConfigureSign = ConfigureSign
+  ConfigureSign = ConfigureSign,
+  hideConfigureSign = hideConfigureSign
 }

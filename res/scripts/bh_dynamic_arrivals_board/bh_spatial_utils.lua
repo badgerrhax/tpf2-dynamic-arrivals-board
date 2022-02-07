@@ -106,7 +106,7 @@ local function getClosestStationGroupsAndTerminal(constructionId, stripTerminalI
             local terminalData = getClosestTerminalData(stationId, position)
             if not stationGroupData or stationGroupData.distance > terminalData.distance then
               stationGroupData = terminalData
-              stationGroupData.stationIdx = stationIdx
+              stationGroupData.stationIdx = stationIdx - 1
             end
           end
         elseif #stationGroupComponent.stations == 1 then -- might we ever get an empty station group? maybe after station bulldoze? just to be safe...

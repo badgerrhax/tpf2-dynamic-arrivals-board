@@ -23,7 +23,13 @@ local function migrateV1(state)
   return state
 end
 
-local function ensureState()
+local function ensureState(loaded)
+  if not loaded then
+    -- something called ensureState without having loaded a state, so this is a blank initialisation
+    -- and has no need for migrations
+    persistent_state.state_version = 1
+  end
+
   if persistent_state.world_time == nil then
     persistent_state.world_time = 0
   end
@@ -42,7 +48,7 @@ local function loadState(state)
     persistent_state = state
   end
 
-  ensureState()
+  ensureState(state ~= nil)
 
   return persistent_state
 end
