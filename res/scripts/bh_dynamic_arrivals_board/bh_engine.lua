@@ -219,7 +219,7 @@ local function update()
               -- TODO: i don't like this the way it is.
               -- update the linked terminal as it might have been changed by the player in the construction params
               local terminalOverride = sign.params[param("terminal_override")] or 0
-              if #signData then
+              if #signData > 0 then
                 if signData[1].auto == false and terminalOverride == 0 then
                   -- player may have changed the construction from a specific terminal to auto, so we need to recalculate the closest one
                   signData = refreshAndResyncStations(signEntity, signData)
@@ -234,7 +234,7 @@ local function update()
 
               local arrivals = {}
 
-              if #signData and config.maxArrivals > 0 then
+              if #signData > 0 and config.maxArrivals > 0 then
                 local nextArrivals = gatherNextArrivals(signData, config.maxArrivals, time)
 
                 if selectedObject == signEntity then
