@@ -104,12 +104,46 @@ local function getNextArrivals(stationTerminal, time, arrivals) -- output to arr
   end
 end
 
-local function gatherNextArrivals(signData, numArrivals, time)
+-- first pass at performing arrival calculations separately from sign updates.
+-- not final, but a way to get started so that there is cached data available for incremental sign update
+local stationTerminalArrivalCache = {}
+
+local function stationTerminalCacheIndex(stationTerminal)
+  local terminalInc = 0
+  if stationTerminal.terminal ~= nil then
+    terminalInc = stationTerminal.terminal + 1
+  elseif stationTerminal.stationIdx ~= nil then
+    terminalInc = stationTerminal.stationIdx + 1
+  end
+  -- stationgroup + terminal is what makes each stationTerminal object unique
+  return stationTerminal.stationGroup * 1000 + terminalInc
+end
+
+-- eventually a coroutine perhaps, or just keep track of progress between calls from engine update.
+local function performArrivalCalculations(allSigns, time)
+  log.timed("performArrivalCalculations", function()
+    for _, signData in pairs(allSigns) do
+      for _, stationTerminal in ipairs(signData) do
+        if stationTerminal.displaying then
+          local arrivals = {}
+          getNextArrivals(stationTerminal, time, arrivals)
+          stationTerminalArrivalCache[stationTerminalCacheIndex(stationTerminal)] = arrivals
+        end
+      end
+    end
+  end)
+end
+
+local function gatherNextArrivals(signData, numArrivals)--, time)
   local arrivals = {}
 
   for _, stationTerminal in ipairs(signData) do
     if stationTerminal.displaying then
-      getNextArrivals(stationTerminal, time, arrivals)
+      local cachedArrivals = stationTerminalArrivalCache[stationTerminalCacheIndex(stationTerminal)]
+      if cachedArrivals then
+        arrivals = utils.joinTables(arrivals, cachedArrivals)
+      end
+      --getNextArrivals(stationTerminal, time, arrivals)
     end
   end
 
@@ -169,143 +203,185 @@ local function refreshAndResyncStations(entityId, oldData)
   return newData
 end
 
+-- todo clean up these parameters later
+local function prepareUpdatedConstruction(sign, config, param, arrivals, clockString, clock_time)
+  local newCon = api.type.SimpleProposal.ConstructionEntity.new()
+
+  local newParams = {}
+  local arrivalParamPrefix = param("arrival_")
+  for oldKey, oldVal in pairs(sign.params) do
+    -- don't copy auto-arrival params as they may have been removed during this update
+    if string.sub(oldKey, 1, #arrivalParamPrefix) ~= arrivalParamPrefix then
+      newParams[oldKey] = oldVal
+    end
+  end
+
+  if config.clock then
+    newParams[param("time_string")] = clockString
+    newParams[param("game_time")] = clock_time
+  end
+
+  newParams[param("num_arrivals")] = #arrivals
+
+  for i, a in ipairs(arrivals) do
+    local paramName = ""
+
+    paramName = paramName .. "arrival_" .. i .. "_"
+    newParams[param(paramName .. "dest")] = a.dest
+    newParams[param(paramName .. "time")] = config.absoluteArrivalTime and a.arrivalTimeString or a.etaMinsString
+    if not config.singleTerminal and a.arrivalTerminal then
+      newParams[param(paramName .. "terminal")] = a.arrivalTerminal + 1
+    end
+  end
+
+  newParams.seed = sign.params.seed + 1
+
+  newCon.fileName = sign.fileName
+  newCon.params = newParams
+  newCon.transf = sign.transf
+  newCon.playerEntity = api.engine.util.getPlayer()
+
+  return newCon
+end
+
+local function coReplaceSigns(time)
+  local state = stateManager.getState()
+  for signEntity, signData in pairs(state.placed_signs) do
+    local sign = api.engine.getComponent(signEntity, api.type.ComponentType.CONSTRUCTION)
+    if sign then
+      local startTime = os.clock()
+      local config = construction.getRegisteredConstructions()[sign.fileName]
+      if not config then config = {} end
+      if not config.labelParamPrefix then config.labelParamPrefix = "" end
+      local function param(name) return config.labelParamPrefix .. name end
+
+      local clock_time = math.floor(time / 1000)
+      local clockString = formatClockString(clock_time)
+
+      local arrivals = {}
+
+      if #signData > 0 and config.maxArrivals > 0 then
+        local nextArrivals = gatherNextArrivals(signData, config.maxArrivals)
+
+        if selectedObject == signEntity then
+          log.object("Time", time)
+          log.object("signData", signData)
+          log.object("nextArrivals", nextArrivals)
+        end
+
+        arrivals = formatArrivals(nextArrivals, time)
+      end
+
+      local newCon = prepareUpdatedConstruction(sign, config, param, arrivals, clockString, clock_time)
+
+      local proposal = api.type.SimpleProposal.new()
+      proposal.constructionsToAdd[1] = newCon
+      proposal.constructionsToRemove = { signEntity }
+
+      -- changing params on a construction doesn't seem to change the entity id which indicates it doesn't completely "replace" it but i don't know how expensive this command actually is...
+      api.cmd.sendCommand(api.cmd.make.buildProposal(proposal, api.type.Context:new(), true))
+
+      local elapsedTime = math.ceil((os.clock() - startTime) * 1000)
+      -- update time provided by next resume
+      time = coroutine.yield(elapsedTime)
+    end
+  end
+end
+
+local replacementCoroutine
+local lastTime = 0
+local placementTimeSamples = {}
+local placementSampleWindow = 5000
+local lastPlacementAverageTime = 0
+
 local function update()
   local state = stateManager.loadState()
   local time = api.engine.getComponent(api.engine.util.getWorld(), api.type.ComponentType.GAME_TIME).gameTime
+  if not time then
+    log.message("cannot get time!")
+    return
+  end
+
   local speed = api.engine.getComponent(api.engine.util.getWorld(), api.type.ComponentType.GAME_SPEED).speedup
   -- TODO actually use this to avoid faster speeds updating faster.. it's not necessary...
   if not speed then
     speed = 1
   end
 
-  if time then
-      local clock_time = math.floor(time / 1000)
-      if clock_time ~= state.world_time then
-        state.world_time = clock_time
+  if time > lastTime then
+    lastTime = time
 
-        -- performance profiling
-        local startTick = os.clock()
+    if replacementCoroutine == nil or coroutine.status(replacementCoroutine) == "dead" then
+      --log.message("Starting sign replacer cycle")
+      replacementCoroutine = coroutine.create(coReplaceSigns)
+    end
 
-        local clockString = formatClockString(clock_time)
+    -- this currently replaces 1 sign per engine update.
+    -- note: speeding up the game makes the engine tick faster, so we just get more update calls per second
+    -- this may not be desirable if we are trying to control performance by limiting build proposals.
+    -- todo: use the average proposal time calculated below to scale up or down the number of signs replaced
+    -- in a single update as close to a total of 10ms(?) per update as possible.
+    -- this could be a config value for the mod so the target can be scaled as needed by player (lower at expense of update speed, ofc)
+    -- make sure to throttle the update of any particular sign so it is never updated more than once per second.
+    local success, execTime = coroutine.resume(replacementCoroutine, time)
+    if not success then
+      log.message("coroutine failed")
+    else
+      placementTimeSamples[#placementTimeSamples+1] = execTime
+    end
 
-        -- some optimisation ideas noting here while i think of them.
-        -- * (maybe not needed after below) build the proposal of multiple construction updates and send a single command after the loop.
-        --    (is this even a bottleneck? - not per call - batching all constructions into single proposal takes about as long as each individual build command.
-        --     so it may be more beneficial to make smaller batches and apply over a few updates to avoid a risk of stuttering)
-        -- * move station / line info gathering into less frequent coroutine
-        -- prevent multiple requests for the same data in this single update. (how slow are engine api calls? )
-        -- we do need to request these per update tho because the player might edit the lines / add / remove vehicles
-        -- do a pass over signs and sort into ones with and without a clock, and update the non-clock ones less frequently
-
-        local newConstructions = {}
-        local oldConstructions = {}
-
-        log.timed("sign processing", function()
-          for signEntity, _ in pairs(state.placed_signs) do
-            if not utils.validEntity(signEntity) then
-              log.message("Sign " .. signEntity .. " no longer exists. Removing data.")
-              state.placed_signs[signEntity] = nil
-            end
-          end
-
-          for signEntity, signData in pairs(state.placed_signs) do
-            local sign = api.engine.getComponent(signEntity, api.type.ComponentType.CONSTRUCTION)
-            if sign then
-              local config = construction.getRegisteredConstructions()[sign.fileName]
-              if not config then config = {} end
-              if not config.labelParamPrefix then config.labelParamPrefix = "" end
-              local function param(name) return config.labelParamPrefix .. name end
-
-              -- TODO: i don't like this the way it is.
-              -- update the linked terminal as it might have been changed by the player in the construction params
-              local terminalOverride = sign.params[param("terminal_override")] or 0
-              if #signData > 0 then
-                if signData[1].auto == false and terminalOverride == 0 then
-                  -- player may have changed the construction from a specific terminal to auto, so we need to recalculate the closest one
-                  signData = refreshAndResyncStations(signEntity, signData)
-                  state.placed_signs[signEntity] = signData
-                elseif terminalOverride > 0 then
-                  for _, stationTerminal in ipairs(signData) do
-                    stationTerminal.terminal = terminalOverride - 1
-                    stationTerminal.auto = false
-                  end
-                end
-              end
-
-              local arrivals = {}
-
-              if #signData > 0 and config.maxArrivals > 0 then
-                local nextArrivals = gatherNextArrivals(signData, config.maxArrivals, time)
-
-                if selectedObject == signEntity then
-                  log.object("Time", time)
-                  log.object("signData", signData)
-                  log.object("nextArrivals", nextArrivals)
-                end
-
-                arrivals = formatArrivals(nextArrivals, time)
-              end
-
-              local newCon = api.type.SimpleProposal.ConstructionEntity.new()
-
-              local newParams = {}
-              local arrivalParamPrefix = param("arrival_")
-              for oldKey, oldVal in pairs(sign.params) do
-                -- don't copy auto-arrival params as they may have been removed during this update
-                if string.sub(oldKey, 1, #arrivalParamPrefix) ~= arrivalParamPrefix then
-                  newParams[oldKey] = oldVal
-                end
-              end
-
-              if config.clock then
-                newParams[param("time_string")] = clockString
-                newParams[param("game_time")] = clock_time
-              end
-
-              newParams[param("num_arrivals")] = #arrivals
-
-              for i, a in ipairs(arrivals) do
-                local paramName = ""
-
-                paramName = paramName .. "arrival_" .. i .. "_"
-                newParams[param(paramName .. "dest")] = a.dest
-                newParams[param(paramName .. "time")] = config.absoluteArrivalTime and a.arrivalTimeString or a.etaMinsString
-                if not config.singleTerminal and a.arrivalTerminal then
-                  newParams[param(paramName .. "terminal")] = a.arrivalTerminal + 1
-                end
-              end
-
-              newParams.seed = sign.params.seed + 1
-
-              newCon.fileName = sign.fileName
-              newCon.params = newParams
-              newCon.transf = sign.transf
-              newCon.playerEntity = api.engine.util.getPlayer()
-
-              newConstructions[#newConstructions+1] = newCon
-              oldConstructions[#oldConstructions+1] = signEntity
-            end
-          end
-        end)
-
-        if #newConstructions then
-          local proposal = api.type.SimpleProposal.new()
-          for i = 1, #newConstructions do
-            proposal.constructionsToAdd[i] = newConstructions[i]
-          end
-          proposal.constructionsToRemove = oldConstructions
-
-          log.timed("buildProposal command", function()
-            -- changing params on a construction doesn't seem to change the entity id which indicates it doesn't completely "replace" it but i don't know how expensive this command actually is...
-            api.cmd.sendCommand(api.cmd.make.buildProposal(proposal, api.type.Context:new(), true))
-          end)
-        end
-
-        local executionTime = math.ceil((os.clock() - startTick) * 1000)
-        print("Full update took " .. executionTime .. "ms")
+    if time > lastPlacementAverageTime + placementSampleWindow then
+      lastPlacementAverageTime = time
+      local sum = 0
+      for _, sample in ipairs(placementTimeSamples) do
+        sum = sum + sample
       end
-  else
-      log.message("cannot get time!")
+      sum = sum / #placementTimeSamples
+      placementTimeSamples = {}
+      log.message("Average buildProposal time: " .. tostring(sum) .. "ms")
+    end
+
+    local clock_time = math.floor(time / 1000)
+    if clock_time ~= state.world_time then
+      state.world_time = clock_time
+
+      for signEntity, _ in pairs(state.placed_signs) do
+        if not utils.validEntity(signEntity) then
+          log.message("Sign " .. signEntity .. " no longer exists. Removing data.")
+          state.placed_signs[signEntity] = nil
+        end
+      end
+
+      -- todo stagger - or maybe step through from gui thread instead? there's more frequent smaller step updates there
+      -- but then we'd still have to pass the data via a cmd and that might defeat the performance.
+      performArrivalCalculations(state.placed_signs, time)
+
+      for signEntity, signData in pairs(state.placed_signs) do
+        local sign = api.engine.getComponent(signEntity, api.type.ComponentType.CONSTRUCTION)
+        if sign then
+          local config = construction.getRegisteredConstructions()[sign.fileName]
+          if not config then config = {} end
+          if not config.labelParamPrefix then config.labelParamPrefix = "" end
+          local function param(name) return config.labelParamPrefix .. name end
+
+          -- TODO: i don't like this the way it is.
+          -- update the linked terminal as it might have been changed by the player in the construction params
+          local terminalOverride = sign.params[param("terminal_override")] or 0
+          if #signData > 0 then
+            if signData[1].auto == false and terminalOverride == 0 then
+              -- player may have changed the construction from a specific terminal to auto, so we need to recalculate the closest one
+              signData = refreshAndResyncStations(signEntity, signData)
+              state.placed_signs[signEntity] = signData
+            elseif terminalOverride > 0 then
+              for _, stationTerminal in ipairs(signData) do
+                stationTerminal.terminal = terminalOverride - 1
+                stationTerminal.auto = false
+              end
+            end
+          end
+        end
+      end
+    end
   end
 end
 
