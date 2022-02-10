@@ -21,6 +21,7 @@ local selectedObject
 local function getNextArrivals(stationTerminal, time, arrivals) -- output to arrivals
   -- despite how many we want to return, we actually need to look at every vehicle on every line stopping here before we can sort and trim
   if not stationTerminal then return end
+  if not utils.validEntity(stationTerminal.stationGroup) then return end
 
   local lineStops = api.engine.system.lineSystem.getLineStops(stationTerminal.stationGroup)
   if not lineStops then return end
@@ -30,10 +31,15 @@ local function getNextArrivals(stationTerminal, time, arrivals) -- output to arr
     uniqueLines[line] = line
   end
 
+  local problemLines = api.engine.system.lineSystem.getProblemLines(api.engine.util.getPlayer())
+  for _, problemLine in ipairs(problemLines) do
+    uniqueLines[problemLine] = nil -- remove problem lines from calculations
+  end
+
   for _, line in pairs(uniqueLines) do
     local lineData = api.engine.getComponent(line, api.type.ComponentType.LINE)
-    if lineData then
-      local lineTermini = lineUtils.calculateLineStopTermini(lineData) -- this will eventually be done in a slower engine loop to save performance
+    if lineData and #lineData.stops > 1 then -- a line with 1 stop is definitely not valid
+      local lineTermini = lineUtils.calculateLineStopTermini(lineData)
       local terminalStopIndex = lineUtils.findTerminalIndices(lineData, stationTerminal)
       local nStops = #lineData.stops
 
@@ -76,25 +82,29 @@ local function getNextArrivals(stationTerminal, time, arrivals) -- output to arr
               -- lastLineStopDeparture seems to be inaccurate.
               --local expectedArrivalTime = vehicle.lineStopDepartures[stopIdx] + math.ceil(lineDuration) * 1000
 
-              local timeUntilArrival = lineUtils.calculateTimeUntilStop(vehicle, stopIdx, stopsAway, nStops, averageSectionTime, time)
-              blah("[Stop " .. stopIdx .. "]: timeUntilArrival", timeUntilArrival)
-              local expectedArrivalTime = time + timeUntilArrival
+              -- check station group validity because if the station was deleted and the line left in a "broken" state, this stop still exists
+              local stationGroup = lineData.stops[lineTermini[stopIdx]].stationGroup
+              if utils.validEntity(stationGroup) and api.engine.getComponent(stationGroup, api.type.ComponentType.STATION_GROUP) then
+                local timeUntilArrival = lineUtils.calculateTimeUntilStop(vehicle, stopIdx, stopsAway, nStops, averageSectionTime, time)
+                blah("[Stop " .. stopIdx .. "]: timeUntilArrival", timeUntilArrival)
+                local expectedArrivalTime = time + timeUntilArrival
 
-              arrivals[#arrivals+1] = {
-                terminalId = terminalIdx,
-                destination = lineData.stops[lineTermini[stopIdx]].stationGroup,
-                arrivalTime = expectedArrivalTime,
-                stopsAway = stopsAway
-              }
-
-              if #vehicles == 1 and lineDuration > 0 then
-                -- if there's only one vehicle, make a second arrival eta + an entire line duration
                 arrivals[#arrivals+1] = {
                   terminalId = terminalIdx,
                   destination = lineData.stops[lineTermini[stopIdx]].stationGroup,
-                  arrivalTime = math.ceil(expectedArrivalTime + lineDuration * 1000),
+                  arrivalTime = expectedArrivalTime,
                   stopsAway = stopsAway
                 }
+
+                if #vehicles == 1 and lineDuration > 0 then
+                  -- if there's only one vehicle, make a second arrival eta + an entire line duration
+                  arrivals[#arrivals+1] = {
+                    terminalId = terminalIdx,
+                    destination = lineData.stops[lineTermini[stopIdx]].stationGroup,
+                    arrivalTime = math.ceil(expectedArrivalTime + lineDuration * 1000),
+                    stopsAway = stopsAway
+                  }
+                end
               end
             end
           end
@@ -184,19 +194,21 @@ local function formatArrivals(arrivals, time)
   if arrivals then
     for _, arrival in ipairs(arrivals) do
       local entry = { dest = "", etaMinsString = "", arrivalTimeString = "", arrivalTerminal = arrival.terminalId }
-      local terminusName = api.engine.getComponent(arrival.destination, api.type.ComponentType.NAME)
-      if terminusName then
-        entry.dest = terminusName.name
-      end
+      if utils.validEntity(arrival.destination) then
+        local terminusName = api.engine.getComponent(arrival.destination, api.type.ComponentType.NAME)
+        if terminusName then
+          entry.dest = terminusName.name
+        end
 
-      entry.arrivalTimeString = formatClockStringHHMM(arrival.arrivalTime / 1000)
-      local expectedSecondsFromNow = math.ceil((arrival.arrivalTime - time) / 1000)
-      local expectedMins = math.ceil(expectedSecondsFromNow / 60)
-      if expectedMins > 0 then
-        entry.etaMinsString = expectedMins .. "min"
-      end
+        entry.arrivalTimeString = formatClockStringHHMM(arrival.arrivalTime / 1000)
+        local expectedSecondsFromNow = math.ceil((arrival.arrivalTime - time) / 1000)
+        local expectedMins = math.ceil(expectedSecondsFromNow / 60)
+        if expectedMins > 0 then
+          entry.etaMinsString = expectedMins .. "min"
+        end
 
-      ret[#ret+1] = entry
+        ret[#ret+1] = entry
+      end
     end
   end
 
