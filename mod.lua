@@ -3,7 +3,7 @@ local construction = require "bh_dynamic_arrivals_board/bh_construction_hooks"
 function data()
 	return {
 		info = {
-			minorVersion = 3,
+			minorVersion = 4,
 			severityAdd = "WARNING",
 			severityRemove = "WARNING",
 			name = _("Dynamic Arrivals Board [EARLY BETA]"),
@@ -28,8 +28,7 @@ I'm making this available for people to help with testing if they wish.
 - Mods that might stop this working - e.g. the Timetables mod which I am already investigating for compatibility
 
 [b]Logging is enabled for the beta period[/b]
-- Update timing
-- Selected sign details
+- Average sign update timings
 - Selected vehicle time to arrival at each station with a sign on
 
 If you report performance or timing issues I may request that you provide this info from your stdout.txt.
