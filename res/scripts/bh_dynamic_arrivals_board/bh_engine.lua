@@ -65,7 +65,8 @@ local function getNextArrivals(stationTerminal, time, arrivals) -- output to arr
 
             if lineDuration == 0 then
               -- vehicle hasn't run a full route yet, so fall back to less accurate (?) method
-              -- calculate line duration by multiplying the number of vehicles by the line frequency
+              -- calculate line duration by multiplying the number of vehicles by the line frequency.
+              -- NOTE this method does not work inside a coroutine! at all!
               local lineEntity = game.interface.getEntity(line)
               lineDuration = (1 / lineEntity.frequency) * #vehicles
             end
@@ -138,22 +139,17 @@ local function stationTerminalCacheIndex(stationTerminal)
   return stationTerminal.stationGroup * 1000000 + stationTerminal.station * 1000 + terminalInc
 end
 
-local function cacheArrivals(signData, time)
-  for _, stationTerminal in ipairs(signData) do
-    if stationTerminal.displaying then
-      local arrivals = {}
-      getNextArrivals(stationTerminal, time, arrivals)
-      stationTerminalArrivalCache[stationTerminalCacheIndex(stationTerminal)] = arrivals
-    end
-  end
-end
-
-local function coPerformArrivalCalculations(time)
+local function performArrivalCalculations(time)
   -- todo could maybe optimise this by gathering unique stationTerminals and caching those
   local state = stateManager.getState()
   for _, signData in pairs(state.placed_signs) do
-    cacheArrivals(signData, time)
-    time = coroutine.yield()
+    for _, stationTerminal in ipairs(signData) do
+      if stationTerminal.displaying then
+        local arrivals = {}
+        getNextArrivals(stationTerminal, time, arrivals)
+        stationTerminalArrivalCache[stationTerminalCacheIndex(stationTerminal)] = arrivals
+      end
+    end
   end
 end
 
@@ -343,22 +339,10 @@ local metrics = {
 local function processCoroutines(time)
   local speed = getGameSpeed()
 
-  if coroutines.arrivalCalcCoroutine == nil or coroutine.status(coroutines.arrivalCalcCoroutine) == "dead" then
-    coroutines.arrivalCalcCoroutine = coroutine.create(coPerformArrivalCalculations)
-  end
-
   -- this runs at least once even if game is paused, so in that case populate the whole line cache initially
   -- so our first sign update doesn't fill signs with blank entries
   if isArrivalCacheEmpty() then
-    repeat
-      local success, err = coroutine.resume(coroutines.arrivalCalcCoroutine, time)
-      if not success then
-        log.message("arrivalCalcCoroutine failed " .. tostring(err))
-      end
-    until not success or coroutine.status(coroutines.arrivalCalcCoroutine) == "dead"
-  else
-    -- do one step of arrival calc updates
-    coroutine.resume(coroutines.arrivalCalcCoroutine, time)
+    performArrivalCalculations(time)
   end
 
   -- time each sign replacement, and for each update replaces as many as can approximately fit in a fixed time budget.
@@ -366,6 +350,7 @@ local function processCoroutines(time)
   -- signs are only replaced if the clock is at least one second different, otherwise they are skipped
   local targetSignProposalTimeBudget = 20 / speed -- milliseconds to spend per engine update performing sign replacements, scaled by game speed (faster update = less time budget per update)
   local updateBuildTime = 0
+  local rebuildLoopStartTime = os.clock()
   repeat
     if coroutines.replacementCoroutine == nil or coroutine.status(coroutines.replacementCoroutine) == "dead" then
       coroutines.replacementCoroutine = coroutine.create(coReplaceSigns)
@@ -389,8 +374,8 @@ local function processCoroutines(time)
     else
       break
     end
-    -- stop one sign short of exceeding the time budget for this update
-  until updateBuildTime + metrics.averageProposalDuration > targetSignProposalTimeBudget
+    -- stop one sign short of exceeding the time budget for this update, or hard stop if engine starts reporting 0ms build times to avoid infinite loop
+  until (updateBuildTime + metrics.averageProposalDuration > targetSignProposalTimeBudget) or (os.clock() - rebuildLoopStartTime > targetSignProposalTimeBudget)
 
   if time > metrics.lastPlacementAverageTime + metrics.placementSampleWindow then
     metrics.lastPlacementAverageTime = time
@@ -413,6 +398,9 @@ local function updateState(time)
   local clock_time = math.floor(time / 1000)
   if clock_time ~= state.world_time then
     state.world_time = clock_time
+
+    -- if i want to stagger this update need to do without coroutines because of game.interface.getEntity for line freq
+    performArrivalCalculations(time)
 
     for signEntity, signData in pairs(state.placed_signs) do
       local sign = api.engine.getComponent(signEntity, api.type.ComponentType.CONSTRUCTION)
