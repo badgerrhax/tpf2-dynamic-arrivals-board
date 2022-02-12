@@ -455,16 +455,16 @@ local function update()
 end
 
 local function handleEvent(src, id, name, param)
-  if src == "bh_gui_engine.lua" then
+  if src == "bh_gui_engine.lua" and id == "bh_dynamic_arrivals_board" then
     if name == "remove_display_construction" then
       local state = stateManager.getState()
       state.placed_signs[param] = nil
       log.message("Removed display construction id " .. tostring(param))
     elseif name == "select_object" then
-      debugPrint({ selectedObject = param })
+      log.message("selectedObject = " .. tostring(param))
       selectedObject = param
     elseif name == "configure_display_construction" then
-      debugPrint({ configure_display_construction = param })
+      log.object("configure_display_construction", param)
       local state = stateManager.getState()
       state.placed_signs[param.signEntity] = param.signData
     end

@@ -74,7 +74,7 @@ local function ConfigureSign(signEntity, nearbyStationGroupData, callbacks)
   window:setVisible(true, false)
 
   local stationTable = guiComp.createStationTable("DynamicArrivalsStationPick", callbacks.stationToggle)
-  local header = guiComp.createStationPickerHeader("DynamicArrivalsStationPick", callbacks.onRescan)
+  local header = guiComp.createStationPickerHeader("DynamicArrivalsStationPick", callbacks.onRescan, callbacks.onBulldoze)
 
   for _, station in ipairs(nearbyStationGroupData) do
     stationTable.addStationGroup(station.stationGroup, station.displaying, station.distance)

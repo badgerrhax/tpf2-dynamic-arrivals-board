@@ -4,6 +4,7 @@ local construction = require("bh_dynamic_arrivals_board/bh_construction_hooks")
 local guiWindows = require("bh_dynamic_arrivals_board/bh_gui_windows")
 local spatialUtils = require("bh_dynamic_arrivals_board/bh_spatial_utils")
 local utils = require("bh_dynamic_arrivals_board/bh_utils")
+local log = require "bh_dynamic_arrivals_board/bh_log"
 
 local editingSign
 
@@ -12,8 +13,8 @@ local function queueAction(func)
   queuedActions[#queuedActions+1] = func
 end
 
-local function sendScriptEvent(id, name, param)
-  api.cmd.sendCommand(api.cmd.make.sendScriptEvent("bh_gui_engine.lua", id, name, param))
+local function sendScriptEvent(name, param)
+  api.cmd.sendCommand(api.cmd.make.sendScriptEvent("bh_gui_engine.lua", "bh_dynamic_arrivals_board", name, param))
 end
 
 local function sendConfigureSign(entityId, signData)
@@ -21,7 +22,7 @@ local function sendConfigureSign(entityId, signData)
     signEntity = entityId,
     signData = signData
   }
-  sendScriptEvent("signConfig", "configure_display_construction", params)
+  sendScriptEvent("configure_display_construction", params)
 end
 
 local function getConfigForEntity(entityId)
@@ -41,6 +42,21 @@ local function presentConfigGui(entityId, nearbyStations)
     onRescan = function()
       queueAction(function()
         placedConstruction(entityId, true)
+      end)
+    end,
+
+    onBulldoze = function()
+      queueAction(function()
+        guiWindows.hideConfigureSign()
+        sendScriptEvent("remove_display_construction", entityId)
+
+        local proposal = api.type.SimpleProposal.new()
+        proposal.constructionsToRemove = { entityId }
+        api.cmd.sendCommand(api.cmd.make.buildProposal(proposal, api.type.Context:new(), true), function(_, success)
+          if not success then
+            log.message("Unable to delete sign " .. entityId)
+          end
+        end)
       end)
     end,
 
@@ -83,7 +99,7 @@ local function handleEvent(id, name, param)
   local state = stateManager.getState()
 
   if name == "select" then
-    sendScriptEvent(id, "select_object", param)
+    sendScriptEvent("select_object", param)
 
     -- if we select a sign, show a gui to change stuff that can't be done in the construction params
     if getConfigForEntity(param) then
@@ -107,7 +123,7 @@ local function handleEvent(id, name, param)
         if editingSign == toRemove[1] then
           guiWindows.hideConfigureSign()
         end
-        sendScriptEvent(id, "remove_display_construction", toRemove[1])
+        sendScriptEvent("remove_display_construction", toRemove[1])
       end
     end
   end

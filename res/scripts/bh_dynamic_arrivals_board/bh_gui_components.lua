@@ -76,26 +76,36 @@ local function createStationTable(styleName, onToggle)
   return object
 end
 
-local function createStationPickerHeader(styleName, onRescan)
+local function createStationPickerHeader(styleName, onRescan, onBulldoze)
   local headerText = api.gui.comp.TextView.new(_("StationPickHeaderText"))
   headerText:setName(styleName .. "::Header::Text")
 
   local fatten = api.gui.comp.TextView.new("")
   fatten:setGravity(-1, 0)
 
-  local buttonIcon = api.gui.comp.ImageView.new("ui/icons/windows/vehicle_replace.tga")
-  buttonIcon:setName(styleName .. "::Header::RescanButton::Icon")
+  local rescanIcon = api.gui.comp.ImageView.new("ui/icons/windows/vehicle_replace.tga")
+  rescanIcon:setName(styleName .. "::Header::RescanButton::Icon")
 
-  local stationRescanButton = api.gui.comp.Button.new(buttonIcon, false)
+  local stationRescanButton = api.gui.comp.Button.new(rescanIcon, false)
   stationRescanButton:setName(styleName .. "::Header::RescanButton")
   stationRescanButton:setGravity(0, 1)
   stationRescanButton:setTooltip(_("StationPickRefreshTooltipText"))
   stationRescanButton:onClick(utils.safeCall(onRescan))
 
+  local bulldozeIcon = api.gui.comp.ImageView.new("ui/button/small/bulldoze.tga")
+  bulldozeIcon:setName(styleName .. "::Header::BulldozeButton")
+
+  local signBulldozeButton = api.gui.comp.Button.new(bulldozeIcon, false)
+  signBulldozeButton:setName(styleName .. "::Header::BulldozeButton")
+  signBulldozeButton:setGravity(0, 1)
+  signBulldozeButton:setTooltip(_("StationPickBulldozeTooltipText"))
+  signBulldozeButton:onClick(utils.safeCall(onBulldoze))
+
   local headerRow = api.gui.layout.BoxLayout.new("HORIZONTAL")
   headerRow:addItem(headerText)
   headerRow:addItem(fatten)
   headerRow:addItem(stationRescanButton)
+  headerRow:addItem(signBulldozeButton)
 
   return headerRow
 end
