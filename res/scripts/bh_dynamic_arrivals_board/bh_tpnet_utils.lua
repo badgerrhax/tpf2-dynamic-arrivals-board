@@ -14,10 +14,49 @@ local function getTpnEdges(entity)
   return tpn
 end
 
+-- version 35024 changed the structure of geometry.params so pos and tangent are arrays of 2 vectors.
+-- this function performs a one-off version check to allow us to account for this across current release and beta.
+-- this check can be removed after beta is released but for now workshop mod needs to maintain compatibility for both versions.
+local geometryParamsAreArray
+local function expectGeometryParamArray()
+  -- first time version check / string parse, because this function is called a lot and otherwise expensive
+  if geometryParamsAreArray == nil then
+    local gameVersion = api.util.getBuildVersion()
+    -- return type of getBuildVersion also changed from number to string
+    if type(gameVersion) == "string" then
+      gameVersion = tonumber(gameVersion)
+    end
+
+    geometryParamsAreArray = gameVersion >= 35024
+  end
+
+  return geometryParamsAreArray
+end
+
+local function getPosParam(geometry)
+  if expectGeometryParamArray() then
+    return geometry.params.pos[1]
+  else
+    return geometry.params.pos
+  end
+end
+
+local function getTanParam(geometry)
+  if expectGeometryParamArray() then
+    if geometry.params.tangent then
+      return geometry.params.tangent[1]
+    else
+      return { x = 0, y = 0 }
+    end
+  else
+    return geometry.params.tangent or { x = 0, y = 0 }
+  end
+end
+
 -- calculates the start or end point of an edge using its origin position and tangent
 local function edgeNodePos(geometry, index) -- <= 1 for start point, > 1 for end point
-  local pos = geometry.params.pos
-  local tan = geometry.params.tangent or { x = 0, y = 0 }
+  local pos = getPosParam(geometry)
+  local tan = getTanParam(geometry)
   local offset = geometry.params.offset or 0
   local perpendicularOffset = offset * vec3.normalize(vec3.new(-tan.y, tan.x, 0))
   return (index > 1 and
