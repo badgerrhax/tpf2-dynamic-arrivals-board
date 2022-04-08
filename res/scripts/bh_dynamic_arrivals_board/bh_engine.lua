@@ -78,6 +78,12 @@ local function getNextArrivals(stationTerminal, time, arrivals) -- output to arr
             -- and calculate an average section time by dividing by the number of stops
             local averageSectionTime = lineDuration / nStops
 
+            -- TODO I need to rework this logic to account for the new alternativeTerminals field on the line object.
+            -- Currently this function is called for each stationTerminal pair, meaning that signs only perform calculations on
+            -- vehicles configured to use the primary terminal. If a vehicle has swapped to an alternate terminal, any signs configured
+            -- to service that terminal will not detect the vehicle. Ideally it should, so as well as the old sign showing the new terminal,
+            -- the new terminal sign also shows the now-incoming vehicle.
+
             --log.object("vehicle_" .. veh, vehicle)
             for terminalIdx, stopIdx in pairs(terminalStopIndex) do
               local stopsAway = (stopIdx - vehicle.stopIndex - 1) % nStops
