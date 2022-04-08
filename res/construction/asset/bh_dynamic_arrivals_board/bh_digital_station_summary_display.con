@@ -76,7 +76,7 @@ function data()
         for i = 1, numArrivals do
           local labelIndexStart = 3 * i + 1
           labelValues[labelIndexStart] = params[configKey("arrival_" .. i .. "_dest")] or ""
-          labelValues[labelIndexStart+1] = tostring(params[configKey("arrival_" .. i .. "_terminal")]) or ""
+          labelValues[labelIndexStart+1] = params[configKey("arrival_" .. i .. "_terminal")] or ""
           labelValues[labelIndexStart+2] = params[configKey("arrival_" .. i .. "_time")] or ""
         end
       end

@@ -14,9 +14,9 @@ local selectedObject
     terminalId = n,
     destination = stationGroup,
     arrivalTime = milliseconds,
-    stopsAway = n
+    stopsAway = n,
+    alternateTerminal = n | nil -- for when the vehicle has chosen an alternate terminal at the last moment
   }
-  sorted in order of arrivalTime (earliest first)
 ]]
 local function getNextArrivals(stationTerminal, time, arrivals) -- output to arrivals
   -- despite how many we want to return, we actually need to look at every vehicle on every line stopping here before we can sort and trim
@@ -42,6 +42,10 @@ local function getNextArrivals(stationTerminal, time, arrivals) -- output to arr
       local lineTermini = lineUtils.calculateLineStopTermini(lineData)
       local terminalStopIndex = lineUtils.findTerminalIndices(lineData, stationTerminal)
       local nStops = #lineData.stops
+
+      -- two notes for now:
+      -- 1. There are new fields on the vehicle component which contain the arrival terminal - which is -1 until it approach the decision point
+      -- 2. If it decides to visit a non primary terminal, all vehicle timing data is reset (bug reported)
 
       local vehicles = api.engine.system.transportVehicleSystem.getLineVehicles(line)
       if vehicles then
@@ -78,6 +82,12 @@ local function getNextArrivals(stationTerminal, time, arrivals) -- output to arr
             for terminalIdx, stopIdx in pairs(terminalStopIndex) do
               local stopsAway = (stopIdx - vehicle.stopIndex - 1) % nStops
 
+              -- record the terminal this vehicle has selected for arrival, if it's different from the primary
+              local targetTerminal
+              if stopsAway == 0 and vehicle.arrivalStationTerminalLocked and vehicle.arrivalStationTerminal.terminal ~= terminalIdx then
+                targetTerminal = vehicle.arrivalStationTerminal.terminal
+              end
+
               -- using lineStopDepartures[stopIdx] + lineDuration seems simple but requires at least one full loop and still isn't always correct if there's bunching.
               -- so instead, using stopsAway, add up the sectionTimes of the stops between there and here, and subtract the diff of now - stopsAway departure time.
               -- lastLineStopDeparture seems to be inaccurate.
@@ -94,11 +104,13 @@ local function getNextArrivals(stationTerminal, time, arrivals) -- output to arr
                   terminalId = terminalIdx,
                   destination = lineData.stops[lineTermini[stopIdx]].stationGroup,
                   arrivalTime = expectedArrivalTime,
-                  stopsAway = stopsAway
+                  stopsAway = stopsAway,
+                  alternateTerminal = targetTerminal
                 }
 
                 if #vehicles == 1 and lineDuration > 0 then
-                  -- if there's only one vehicle, make a second arrival eta + an entire line duration
+                  -- if there's only one vehicle, make a second arrival eta + an entire line duration.
+                  -- this one will never have a valid alternate terminal because it's not even approaching the station yet.
                   arrivals[#arrivals+1] = {
                     terminalId = terminalIdx,
                     destination = lineData.stops[lineTermini[stopIdx]].stationGroup,
@@ -189,7 +201,13 @@ local function formatArrivals(arrivals, time)
 
   if arrivals then
     for _, arrival in ipairs(arrivals) do
-      local entry = { dest = "", etaMinsString = "", arrivalTimeString = "", arrivalTerminal = arrival.terminalId }
+      local entry = {
+        dest = "",
+        etaMinsString = "",
+        arrivalTimeString = "",
+        arrivalTerminal = arrival.alternateTerminal or arrival.terminalId,
+        alternate = arrival.alternateTerminal ~= nil
+      }
       if utils.validEntity(arrival.destination) then
         local terminusName = api.engine.getComponent(arrival.destination, api.type.ComponentType.NAME)
         if terminusName then
@@ -258,9 +276,9 @@ local function prepareUpdatedConstruction(sign, config, param, arrivals, clockSt
 
     paramName = paramName .. "arrival_" .. i .. "_"
     newParams[param(paramName .. "dest")] = a.dest
-    newParams[param(paramName .. "time")] = config.absoluteArrivalTime and a.arrivalTimeString or a.etaMinsString
+    newParams[param(paramName .. "time")] = config.absoluteArrivalTime and a.arrivalTimeString or (a.alternate and ("Plat " .. tostring(a.arrivalTerminal + 1)) or a.etaMinsString)
     if not config.singleTerminal and a.arrivalTerminal then
-      newParams[param(paramName .. "terminal")] = a.arrivalTerminal + 1
+      newParams[param(paramName .. "terminal")] = tostring(a.arrivalTerminal + 1) .. (a.alternate and "*" or "")
     end
   end
 
