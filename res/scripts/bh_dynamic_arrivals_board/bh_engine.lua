@@ -8,121 +8,103 @@ local utils = require "bh_dynamic_arrivals_board/bh_utils"
 
 local selectedObject
 
---[[ 
-  returns an array of tables that look like this:
-  {
-    terminalId = n,
-    destination = stationGroup,
-    arrivalTime = milliseconds,
-    stopsAway = n,
-    alternateTerminal = n | nil -- for when the vehicle has chosen an alternate terminal at the last moment
-  }
+local function stationTerminalCacheIndexId(stationGroupId, stationId, stationIdx, terminal)
+  local terminalInc = 0
+  if terminal ~= nil then
+    terminalInc = terminal + 1
+  elseif stationIdx ~= nil then
+    terminalInc = stationIdx + 1
+  end
+  -- stationgroup + station + terminal is what makes each stationTerminal object unique
+  return stationGroupId * 1000000 + stationId * 1000 + terminalInc
+end
+
+local function stationTerminalCacheIndex(stationTerminal)
+  return stationTerminalCacheIndexId(stationTerminal.stationGroup, stationTerminal.station, stationTerminal.stationIdx, stationTerminal.terminal)
+end
+
+--[[
+  Given 
+  Output: populates stationArrivals with a map of stationTerminal => arrivals[] that look like this:
+  stationTerminalCacheIndexId = [
+    {
+      terminalId = n,
+      destination = stationGroup,
+      arrivalTime = ms,
+      stopsAway = n,
+      alternateTerminal = n | nil -- for when the vehicle has chosen an alternate terminal at the last moment
+    },
+    { ... }
+  ]
 ]]
-local function getNextArrivals(stationTerminal, time, arrivals) -- output to arrivals
-  -- despite how many we want to return, we actually need to look at every vehicle on every line stopping here before we can sort and trim
-  if not stationTerminal then return end
-  if not utils.validEntity(stationTerminal.stationGroup) then return end
+local function getArrivals(stationTerminals, time, stationArrivals) --output to stationArrivals
+  local adjustmentEntries = {}
+  for _, stationTerminal in ipairs(stationTerminals) do
+    if stationTerminal and utils.validEntity(stationTerminal.stationGroup) then
+      local cacheId = stationTerminalCacheIndex(stationTerminal)
+      if stationArrivals[cacheId] == nil then
+        -- we haven't calculated arrivals for this terminal yet
 
-  local lineStops = api.engine.system.lineSystem.getLineStops(stationTerminal.stationGroup)
-  if not lineStops then return end
+        local arrivals = {}
+        stationArrivals[cacheId] = arrivals
 
-  local uniqueLines = {}
-  for _, line in pairs(lineStops) do
-    uniqueLines[line] = line
-  end
+        local lines = lineUtils.getUniqueValidLines(stationTerminal.stationGroup)
+        for line, lineData in pairs(lines) do
+          local lineTermini = lineUtils.calculateLineStopTermini(lineData)
+          local terminalStopIndex = lineUtils.findTerminalIndices(lineData, stationTerminal)
+          local nStops = #lineData.stops
+          local sectionTimes, lineDuration = lineUtils.calculateSectionTimesAndLineDuration(line, nStops)
 
-  local problemLines = api.engine.system.lineSystem.getProblemLines(api.engine.util.getPlayer())
-  for _, problemLine in ipairs(problemLines) do
-    uniqueLines[problemLine] = nil -- remove problem lines from calculations
-  end
+          local vehicles = api.engine.system.transportVehicleSystem.getLineVehicles(line)
+          if vehicles then
+            for _, veh in ipairs(vehicles) do
+              local vehicle = api.engine.getComponent(veh, api.type.ComponentType.TRANSPORT_VEHICLE)
+              if vehicle then
+                for terminalIdx, stopIdx in pairs(terminalStopIndex) do
+                  local stopsAway = (stopIdx - vehicle.stopIndex - 1) % nStops
+    
+                  -- record the terminal this vehicle has selected for arrival, if it's different from the primary
+                  local targetTerminal
+                  if stopsAway == 0 and vehicle.arrivalStationTerminalLocked and vehicle.arrivalStationTerminal.terminal ~= terminalIdx then
+                    targetTerminal = vehicle.arrivalStationTerminal.terminal
+                  end
 
-  for _, line in pairs(uniqueLines) do
-    local lineData = api.engine.getComponent(line, api.type.ComponentType.LINE)
-    if lineData and #lineData.stops > 1 then -- a line with 1 stop is definitely not valid
-      local lineTermini = lineUtils.calculateLineStopTermini(lineData)
-      local terminalStopIndex = lineUtils.findTerminalIndices(lineData, stationTerminal)
-      local nStops = #lineData.stops
+                  -- check station group validity because if the station was deleted and the line left in a "broken" state, this stop still exists
+                  local stationGroup = lineData.stops[lineTermini[stopIdx]].stationGroup
+                  if utils.validEntity(stationGroup) and api.engine.getComponent(stationGroup, api.type.ComponentType.STATION_GROUP) then
+                    local timeUntilArrival = lineUtils.calculateTimeUntilStop(vehicle, sectionTimes, stopIdx, stopsAway, nStops, time)
+                    local expectedArrivalTime = time + timeUntilArrival
+    
+                    arrivals[#arrivals+1] = {
+                      terminalId = terminalIdx,
+                      destination = lineData.stops[lineTermini[stopIdx]].stationGroup,
+                      arrivalTime = expectedArrivalTime,
+                      stopsAway = stopsAway,
+                      alternateTerminal = targetTerminal
+                    }
 
-      -- two notes for now:
-      -- 1. There are new fields on the vehicle component which contain the arrival terminal - which is -1 until it approach the decision point
-      -- 2. If it decides to visit a non primary terminal, all vehicle timing data is reset (bug reported)
-
-      local vehicles = api.engine.system.transportVehicleSystem.getLineVehicles(line)
-      if vehicles then
-        for _, veh in ipairs(vehicles) do
-          local vehicle = api.engine.getComponent(veh, api.type.ComponentType.TRANSPORT_VEHICLE)
-          if vehicle then
-            local lineDuration = 0
-            for _, sectionTime in ipairs(vehicle.sectionTimes) do
-              lineDuration = lineDuration + sectionTime
-              if sectionTime == 0 then
-                lineDuration = 0
-                break -- early out if we dont have full line duration data. we need to calculate a different (less accurate) way
-              end
-            end
-
-            local function blah(str, val)
-              if selectedObject == veh then
-                print(str .. " = " .. val)
-              end
-            end
-
-            if lineDuration == 0 then
-              -- vehicle hasn't run a full route yet, so fall back to less accurate (?) method
-              -- calculate line duration by multiplying the number of vehicles by the line frequency.
-              -- NOTE this method does not work inside a coroutine! at all!
-              local lineEntity = game.interface.getEntity(line)
-              lineDuration = (1 / lineEntity.frequency) * #vehicles
-            end
-
-            -- and calculate an average section time by dividing by the number of stops
-            local averageSectionTime = lineDuration / nStops
-
-            -- TODO I need to rework this logic to account for the new alternativeTerminals field on the line object.
-            -- Currently this function is called for each stationTerminal pair, meaning that signs only perform calculations on
-            -- vehicles configured to use the primary terminal. If a vehicle has swapped to an alternate terminal, any signs configured
-            -- to service that terminal will not detect the vehicle. Ideally it should, so as well as the old sign showing the new terminal,
-            -- the new terminal sign also shows the now-incoming vehicle.
-
-            --log.object("vehicle_" .. veh, vehicle)
-            for terminalIdx, stopIdx in pairs(terminalStopIndex) do
-              local stopsAway = (stopIdx - vehicle.stopIndex - 1) % nStops
-
-              -- record the terminal this vehicle has selected for arrival, if it's different from the primary
-              local targetTerminal
-              if stopsAway == 0 and vehicle.arrivalStationTerminalLocked and vehicle.arrivalStationTerminal.terminal ~= terminalIdx then
-                targetTerminal = vehicle.arrivalStationTerminal.terminal
-              end
-
-              -- using lineStopDepartures[stopIdx] + lineDuration seems simple but requires at least one full loop and still isn't always correct if there's bunching.
-              -- so instead, using stopsAway, add up the sectionTimes of the stops between there and here, and subtract the diff of now - stopsAway departure time.
-              -- lastLineStopDeparture seems to be inaccurate.
-              --local expectedArrivalTime = vehicle.lineStopDepartures[stopIdx] + math.ceil(lineDuration) * 1000
-
-              -- check station group validity because if the station was deleted and the line left in a "broken" state, this stop still exists
-              local stationGroup = lineData.stops[lineTermini[stopIdx]].stationGroup
-              if utils.validEntity(stationGroup) and api.engine.getComponent(stationGroup, api.type.ComponentType.STATION_GROUP) then
-                local timeUntilArrival = lineUtils.calculateTimeUntilStop(vehicle, stopIdx, stopsAway, nStops, averageSectionTime, time)
-                blah("[Stop " .. stopIdx .. "]: timeUntilArrival", timeUntilArrival)
-                local expectedArrivalTime = time + timeUntilArrival
-
-                arrivals[#arrivals+1] = {
-                  terminalId = terminalIdx,
-                  destination = lineData.stops[lineTermini[stopIdx]].stationGroup,
-                  arrivalTime = expectedArrivalTime,
-                  stopsAway = stopsAway,
-                  alternateTerminal = targetTerminal
-                }
-
-                if #vehicles == 1 and lineDuration > 0 then
-                  -- if there's only one vehicle, make a second arrival eta + an entire line duration.
-                  -- this one will never have a valid alternate terminal because it's not even approaching the station yet.
-                  arrivals[#arrivals+1] = {
-                    terminalId = terminalIdx,
-                    destination = lineData.stops[lineTermini[stopIdx]].stationGroup,
-                    arrivalTime = math.ceil(expectedArrivalTime + lineDuration * 1000),
-                    stopsAway = stopsAway
-                  }
+                    if targetTerminal ~= nil then
+                      -- record for inserting into target terminal
+                      local targetCacheId = stationTerminalCacheIndexId(stationTerminal.stationGroup, stationTerminal.station, stationTerminal.stationIdx, targetTerminal)
+                      adjustmentEntries[targetCacheId] = {
+                        terminalId = targetTerminal,
+                        destination = lineData.stops[lineTermini[stopIdx]].stationGroup,
+                        arrivalTime = expectedArrivalTime,
+                        stopsAway = stopsAway
+                      }
+                    end
+    
+                    if #vehicles == 1 and lineDuration > 0 then
+                      -- if there's only one vehicle, make a second arrival eta + an entire line duration.
+                      -- this one will never have a valid alternate terminal because it's not even approaching the station yet.
+                      arrivals[#arrivals+1] = {
+                        terminalId = terminalIdx,
+                        destination = lineData.stops[lineTermini[stopIdx]].stationGroup,
+                        arrivalTime = math.ceil(expectedArrivalTime + lineDuration * 1000),
+                        stopsAway = nStops + stopsAway
+                      }
+                    end
+                  end
                 end
               end
             end
@@ -130,6 +112,12 @@ local function getNextArrivals(stationTerminal, time, arrivals) -- output to arr
         end
       end
     end
+  end
+
+  -- add adjustments to their target arrival data
+  for cacheIndex, arrival in pairs(adjustmentEntries) do
+    local target = stationArrivals[cacheIndex] or {}
+    target[#target] = arrival
   end
 end
 
@@ -146,34 +134,24 @@ local function isArrivalCacheEmpty()
   return true
 end
 
-local function stationTerminalCacheIndex(stationTerminal)
-  local terminalInc = 0
-  if stationTerminal.terminal ~= nil then
-    terminalInc = stationTerminal.terminal + 1
-  elseif stationTerminal.stationIdx ~= nil then
-    terminalInc = stationTerminal.stationIdx + 1
-  end
-  -- stationgroup + station + terminal is what makes each stationTerminal object unique
-  return stationTerminal.stationGroup * 1000000 + stationTerminal.station * 1000 + terminalInc
-end
-
 local function performArrivalCalculations(time)
-  -- todo could maybe optimise this by gathering unique stationTerminals and caching those
   local state = stateManager.getState()
+  local stationTerminals = {}
   for _, signData in pairs(state.placed_signs) do
     for _, stationTerminal in ipairs(signData) do
       if stationTerminal.displaying then
-        local arrivals = {}
-        getNextArrivals(stationTerminal, time, arrivals)
-        stationTerminalArrivalCache[stationTerminalCacheIndex(stationTerminal)] = arrivals
+        stationTerminals[#stationTerminals+1] = stationTerminal
       end
     end
   end
+
+  local arrivals = {}
+  getArrivals(stationTerminals, time, arrivals)
+  stationTerminalArrivalCache = arrivals
 end
 
 local function gatherNextArrivals(signData, numArrivals)
   local arrivals = {}
-
   for _, stationTerminal in ipairs(signData) do
     if stationTerminal.displaying then
       local cachedArrivals = stationTerminalArrivalCache[stationTerminalCacheIndex(stationTerminal)]
@@ -280,11 +258,24 @@ local function prepareUpdatedConstruction(sign, config, param, arrivals, clockSt
   for i, a in ipairs(arrivals) do
     local paramName = ""
 
+    local timeString
+    if config.absoluteArrivalTime then
+      timeString = a.arrivalTimeString
+    elseif a.alternate then
+      if clock_time % 2 == 0 then
+        timeString = ""
+      else
+        timeString = "Plat " .. tostring(a.arrivalTerminal + 1)
+      end
+    else
+      timeString = a.etaMinsString
+    end
+
     paramName = paramName .. "arrival_" .. i .. "_"
     newParams[param(paramName .. "dest")] = a.dest
-    newParams[param(paramName .. "time")] = config.absoluteArrivalTime and a.arrivalTimeString or (a.alternate and ("Plat " .. tostring(a.arrivalTerminal + 1)) or a.etaMinsString)
+    newParams[param(paramName .. "time")] = timeString
     if not config.singleTerminal and a.arrivalTerminal then
-      newParams[param(paramName .. "terminal")] = tostring(a.arrivalTerminal + 1) .. (a.alternate and "*" or "")
+      newParams[param(paramName .. "terminal")] = tostring(a.arrivalTerminal + 1) .. (a.alternate and clock_time % 2 == 1 and "*" or "")
     end
   end
 

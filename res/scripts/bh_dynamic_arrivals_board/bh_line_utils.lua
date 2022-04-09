@@ -1,3 +1,23 @@
+local function getUniqueValidLines(stationGroupId)
+  local lineStops = api.engine.system.lineSystem.getLineStops(stationGroupId)
+  if not lineStops then return end
+
+  local uniqueLines = {}
+  for _, line in pairs(lineStops) do
+    local lineData = api.engine.getComponent(line, api.type.ComponentType.LINE)
+    if lineData and #lineData.stops > 1 then -- a line with 1 stop is definitely not valid
+      uniqueLines[line] = lineData
+    end
+  end
+
+  local problemLines = api.engine.system.lineSystem.getProblemLines(api.engine.util.getPlayer())
+  for _, problemLine in ipairs(problemLines) do
+    uniqueLines[problemLine] = nil -- remove problem lines from calculations
+  end
+
+  return uniqueLines
+end
+
 local function calculateLineStopTermini(lineData)
   local lineStops = lineData.stops
   local stops = {}
@@ -30,12 +50,12 @@ local function calculateLineStopTermini(lineData)
   return stops
 end
 
-local function calculateTimeUntilStop(vehicle, stopIdx, stopsAway, nStops, averageSectionTime, currentTime)
+local function calculateTimeUntilStop(vehicle, sectionTimes, stopIdx, stopsAway, nStops, currentTime)
   local idx = (stopIdx - 2) % nStops + 1
   local segTotal = 0
   for _ = 1, stopsAway + 1 do
-    local seg = vehicle.sectionTimes[idx]
-    segTotal = segTotal + (seg or averageSectionTime)
+    local seg = sectionTimes[idx]
+    segTotal = segTotal + seg
     idx = (idx - 2) % nStops + 1
   end
   segTotal = segTotal * 1000
@@ -56,8 +76,76 @@ local function findTerminalIndices(lineData, stationTerminal)
   return terminalStopIndex
 end
 
+local function calculateSectionTimesAndLineDuration(line, nStops)
+  local vehicles = api.engine.system.transportVehicleSystem.getLineVehicles(line)
+  local sectionTimes
+  local lineDuration = 0
+  local returnSectionTimes
+
+  if vehicles then
+    for _, veh in ipairs(vehicles) do
+      local vehicle = api.engine.getComponent(veh, api.type.ComponentType.TRANSPORT_VEHICLE)
+      if vehicle then
+        if not sectionTimes then
+          sectionTimes = {}
+          for i = 1, #vehicle.sectionTimes do
+            sectionTimes[i] = {}
+          end
+        end
+
+        for i, sectionTime in ipairs(vehicle.sectionTimes) do
+          if sectionTime > 0 then
+            local si = sectionTimes[i]
+            si[#si+1] = sectionTime
+          end
+        end
+      end
+    end
+
+    if not sectionTimes then
+      return nil, 0 -- there are no vehicles on the line
+    end
+
+    returnSectionTimes = {}
+    
+    -- gather average of each section time across all vehicles on the line to help fill in gaps
+    for i, sectionTimeAccum in ipairs(sectionTimes) do
+      if #sectionTimeAccum == 0 then
+        lineDuration = 0
+        break -- early out if we dont have full line duration data. we need to calculate a different (less accurate) way
+      end
+      local cumulative = 0
+      for _, sectionTime in ipairs(sectionTimeAccum) do
+        cumulative = cumulative + sectionTime
+      end
+      cumulative = cumulative / #sectionTimeAccum
+      lineDuration = lineDuration + cumulative
+      returnSectionTimes[i] = cumulative
+    end
+
+    if lineDuration == 0 then
+      -- vehicle hasn't run a full route yet, so fall back to less accurate (?) method
+      -- calculate line duration by multiplying the number of vehicles by the line frequency.
+      -- NOTE this method does not work inside a coroutine! at all!
+      local lineEntity = game.interface.getEntity(line)
+      lineDuration = (1 / lineEntity.frequency) * #vehicles
+
+      -- and calculate an average section time by dividing by the number of stops
+      local averageSectionTime = lineDuration / nStops
+
+      for i = 1, #sectionTimes do
+        returnSectionTimes[i] = averageSectionTime
+      end
+    end
+  end
+
+  return returnSectionTimes, lineDuration
+end
+
 return {
+  getUniqueValidLines = getUniqueValidLines,
   calculateLineStopTermini = calculateLineStopTermini,
   calculateTimeUntilStop = calculateTimeUntilStop,
-  findTerminalIndices = findTerminalIndices
+  findTerminalIndices = findTerminalIndices,
+  calculateSectionTimesAndLineDuration = calculateSectionTimesAndLineDuration
 }
