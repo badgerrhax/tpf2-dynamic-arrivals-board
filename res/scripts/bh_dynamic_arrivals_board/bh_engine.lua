@@ -262,7 +262,7 @@ local function prepareUpdatedConstruction(sign, config, param, arrivals, clockSt
     if config.absoluteArrivalTime then
       timeString = a.arrivalTimeString
     elseif a.alternate then
-      if clock_time % 2 == 0 then
+      if clock_time % 3 == 0 then
         timeString = ""
       else
         timeString = "Plat " .. tostring(a.arrivalTerminal + 1)
@@ -275,7 +275,7 @@ local function prepareUpdatedConstruction(sign, config, param, arrivals, clockSt
     newParams[param(paramName .. "dest")] = a.dest
     newParams[param(paramName .. "time")] = timeString
     if not config.singleTerminal and a.arrivalTerminal then
-      newParams[param(paramName .. "terminal")] = tostring(a.arrivalTerminal + 1) .. (a.alternate and clock_time % 2 == 1 and "*" or "")
+      newParams[param(paramName .. "terminal")] = tostring(a.arrivalTerminal + 1) .. (a.alternate and clock_time % 3 == 0 and "*" or "")
     end
   end
 

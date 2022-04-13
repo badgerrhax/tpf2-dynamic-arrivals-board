@@ -3,7 +3,7 @@ local construction = require "bh_dynamic_arrivals_board/bh_construction_hooks"
 function data()
 	return {
 		info = {
-			minorVersion = 7,
+			minorVersion = 8,
 			severityAdd = "WARNING",
 			severityRemove = "WARNING",
 			name = _("Dynamic Arrivals Board"),
