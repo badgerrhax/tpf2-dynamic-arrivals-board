@@ -1,5 +1,6 @@
 function data()
 return {
+	__version = "",
 	order = 0,
 	params = {
 		albedo_scale = {

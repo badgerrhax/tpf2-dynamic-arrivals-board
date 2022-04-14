@@ -74,35 +74,33 @@ local function getArrivals(stationTerminals, time, stationArrivals) --output to 
                   if utils.validEntity(stationGroup) and api.engine.getComponent(stationGroup, api.type.ComponentType.STATION_GROUP) then
                     local timeUntilArrival = lineUtils.calculateTimeUntilStop(vehicle, sectionTimes, stopIdx, stopsAway, nStops, time)
                     local expectedArrivalTime = time + timeUntilArrival
+
+                    local function createArrival(terminal, arrivalTime, stops)
+                      local lineTerminusIdx = lineTermini[stopIdx]
+                      return {
+                        terminalId = terminal,
+                        destination = lineData.stops[lineTerminusIdx].stationGroup,
+                        arrivalTime = arrivalTime,
+                        stopsAway = stops,
+                        alternateTerminal = targetTerminal,
+                        line = line,
+                        lineStopIdx = stopIdx,
+                        lineTerminusIdx = lineTerminusIdx
+                      }
+                    end
     
-                    arrivals[#arrivals+1] = {
-                      terminalId = terminalIdx,
-                      destination = lineData.stops[lineTermini[stopIdx]].stationGroup,
-                      arrivalTime = expectedArrivalTime,
-                      stopsAway = stopsAway,
-                      alternateTerminal = targetTerminal
-                    }
+                    arrivals[#arrivals+1] = createArrival(terminalIdx, expectedArrivalTime, stopsAway)
 
                     if targetTerminal ~= nil then
                       -- record for inserting into target terminal
                       local targetCacheId = stationTerminalCacheIndexId(stationTerminal.stationGroup, stationTerminal.station, stationTerminal.stationIdx, targetTerminal)
-                      adjustmentEntries[targetCacheId] = {
-                        terminalId = targetTerminal,
-                        destination = lineData.stops[lineTermini[stopIdx]].stationGroup,
-                        arrivalTime = expectedArrivalTime,
-                        stopsAway = stopsAway
-                      }
+                      adjustmentEntries[targetCacheId] = createArrival(targetTerminal, expectedArrivalTime, stopsAway)
                     end
     
                     if #vehicles == 1 and lineDuration > 0 then
                       -- if there's only one vehicle, make a second arrival eta + an entire line duration.
                       -- this one will never have a valid alternate terminal because it's not even approaching the station yet.
-                      arrivals[#arrivals+1] = {
-                        terminalId = terminalIdx,
-                        destination = lineData.stops[lineTermini[stopIdx]].stationGroup,
-                        arrivalTime = math.ceil(expectedArrivalTime + lineDuration * 1000),
-                        stopsAway = nStops + stopsAway
-                      }
+                      arrivals[#arrivals+1] = createArrival(terminalIdx, math.ceil(expectedArrivalTime + lineDuration * 1000), nStops + stopsAway)
                     end
                   end
                 end
@@ -180,7 +178,7 @@ local function formatClockStringHHMM(clock_time)
   return string.format("%02d:%02d", (clock_time / 60 / 60) % 24, (clock_time / 60) % 60)
 end
 
-local function formatArrivals(arrivals, time)
+local function formatArrivals(arrivals, time, includeCalling)
   local ret = {}
 
   if arrivals then
@@ -192,17 +190,31 @@ local function formatArrivals(arrivals, time)
         arrivalTerminal = arrival.alternateTerminal or arrival.terminalId,
         alternate = arrival.alternateTerminal ~= nil
       }
-      if utils.validEntity(arrival.destination) then
-        local terminusName = api.engine.getComponent(arrival.destination, api.type.ComponentType.NAME)
-        if terminusName then
-          entry.dest = terminusName.name
-        end
 
+      local function getStationGroupName(stationGroup)
+        local nameData = api.engine.getComponent(stationGroup, api.type.ComponentType.NAME)
+        if not nameData then return nil end
+        return nameData.name
+      end
+
+      if utils.validEntity(arrival.destination) then
+        entry.dest = getStationGroupName(arrival.destination)
         entry.arrivalTimeString = formatClockStringHHMM(arrival.arrivalTime / 1000)
         local expectedSecondsFromNow = math.ceil((arrival.arrivalTime - time) / 1000)
         local expectedMins = math.ceil(expectedSecondsFromNow / 60)
         if expectedMins > 0 then
           entry.etaMinsString = expectedMins .. "min"
+        end
+
+        if includeCalling then
+          local callingStationGroups = lineUtils.getCallingAtStationGroups(arrival.line, arrival.lineStopIdx, arrival.lineTerminusIdx)
+          if #callingStationGroups > 0 then
+            local names = {}
+            for _, stationGroup in ipairs(callingStationGroups) do
+              names[#names+1] = getStationGroupName(stationGroup)
+            end
+            entry.callingAt = utils.joinString(names, ",")
+          end
         end
 
         ret[#ret+1] = entry
@@ -277,6 +289,9 @@ local function prepareUpdatedConstruction(sign, config, param, arrivals, clockSt
     if not config.singleTerminal and a.arrivalTerminal then
       newParams[param(paramName .. "terminal")] = tostring(a.arrivalTerminal + 1) .. (a.alternate and clock_time % 3 == 0 and "*" or "")
     end
+    if config.includeCalling and a.callingAt then
+      newParams[param(paramName .. "callingAt")] = a.callingAt
+    end
   end
 
   newParams.seed = sign.params.seed + 1
@@ -308,7 +323,7 @@ local function coReplaceSigns(time)
 
       if #signData > 0 and config.maxArrivals > 0 then
         local nextArrivals = gatherNextArrivals(signData, config.maxArrivals)
-        arrivals = formatArrivals(nextArrivals, time)
+        arrivals = formatArrivals(nextArrivals, time, config.includeCalling)
       end
 
       local newCon = prepareUpdatedConstruction(sign, config, param, arrivals, clockString, clock_time)

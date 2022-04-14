@@ -1,0 +1,104 @@
+local constructionutil = require "constructionutil"
+local transf = require "transf"
+local utils = require "bh_dynamic_arrivals_board/bh_utils"
+
+local function configKey(name)
+  return "bh_digital_display_calling_" .. name
+end
+
+local function makeParams()
+  local params = {}
+
+  params[#params+1] = {
+    key = configKey("snapTrackPlatformAlign"),
+    name = _("Snapping Align"),
+    values = { _("Free"), _("Platform") },
+    defaultIndex = 0
+  }
+
+  -- since the terminal placement logic is not perfect, provide a param to override the terminal this sign is linked to
+  utils.makeTerminalOverrideParam(params, configKey)
+
+  utils.makeRotateParams(params, configKey)
+  utils.makeOffsetParams(params, configKey)
+
+  return params
+end
+
+function data()
+
+  return { 
+    type = "ASSET_TRACK",
+    description = {
+      name = _("Dynamic Arrivals Calling Board"),
+      description = _("A digital display showing approaching trains to specified terminal, with calling info"),
+      icon = "ui/construction/asset/bh_dynamic_arrivals_board/bh_digital_summary_construction@2x.tga"
+    },
+    availability = {},
+    buildMode = "SINGLE",
+    categories = { "badgerrhax" },
+    order = 13,
+    skipCollision = true,
+    autoRemovable = false,
+    params = makeParams(),
+    
+    updateFn = function(params)
+      local result = { }
+      result.models = {}
+
+      local align = params[configKey("snapTrackPlatformAlign")] or 1
+
+      local rotate = utils.readRotateParams(params, configKey)
+      if align ~= 0 then
+        rotate.x = rotate.x + math.pi / 2
+      end
+
+      local offset = utils.readOffsetParams(params, configKey)
+      if align ~= 0 then
+        offset.y = offset.y - 4.95
+        offset.z = offset.z + 0.54
+      end
+
+      local model = "bh_dynamic_arrivals_board/bh_dynamic_tall_calling.mdl"
+      result.models[#result.models + 1] = {
+        id = model, transf = constructionutil.rotateTransf(params, transf.rotZYXTransl(rotate, offset))
+      }
+
+      local labelValues = {}
+      for i = 1, 11 do
+        labelValues[i] = ""
+      end
+
+      local arrivalTime = params[configKey("arrival_1_time")]
+      local dest = params[configKey("arrival_1_dest")]
+
+      labelValues[1] = (arrivalTime and dest and (arrivalTime .. dest)) or ""
+      labelValues[2] = "Calling at"
+      labelValues[11] = params[configKey("time_string")]
+
+      local calling = params[configKey("arrival_1_callingAt")]
+      if calling then
+        local list = utils.splitString(calling, ",")
+        for i = 1, math.min(8, #list) do
+          labelValues[i + 2] = list[i]
+        end
+      end
+      if arrivalTime and labelValues[3] == "" then
+        labelValues[2] = "Non-stop"
+      end
+
+      result.labelText = {
+        [#result.models-1] = labelValues
+      }
+
+      result.terrainAlignmentLists = { { type = "EQUAL", faces = {} }}
+      result.groundFaces = {}
+
+      -- specifically to make the game treat this as a construction
+      result.personCapacity = { type = "RESIDENTIAL", capacity = 1, }
+
+      return result
+    end
+  }
+
+end

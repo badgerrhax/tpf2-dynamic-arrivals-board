@@ -244,6 +244,17 @@ local function validEntity(id)
   return type(id) == "number" and id > 0 and api.engine.entityExists(id)
 end
 
+local function joinString(t, delimiter)
+  return table.concat(t, delimiter)
+end
+
+local function splitString(string, delimiter)
+  local ret = {}
+  string = string .. delimiter
+  for w in string:gmatch("(.-)" .. delimiter) do ret[#ret+1] = w end
+  return ret
+end
+
 return {
   makeOffsetParams = makeOffsetParams,
   readOffsetParams = readOffsetParams,
@@ -255,5 +266,7 @@ return {
   parameterIcons = parameterIcons,
   joinTables = joinTables,
   safeCall = safeCall,
-  validEntity = validEntity
+  validEntity = validEntity,
+  joinString = joinString,
+  splitString = splitString
 }

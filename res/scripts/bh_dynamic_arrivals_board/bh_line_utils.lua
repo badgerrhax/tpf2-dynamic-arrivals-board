@@ -142,10 +142,27 @@ local function calculateSectionTimesAndLineDuration(line, nStops)
   return returnSectionTimes, lineDuration
 end
 
+local function getCallingAtStationGroups(line, afterStop, untilStop)
+  if afterStop == untilStop then return {} end
+  local lineData = api.engine.getComponent(line, api.type.ComponentType.LINE)
+  local stationGroups = {}
+  if lineData then
+    local nStops = #lineData.stops
+    if afterStop > nStops or untilStop > nStops then return {} end
+    local idx = afterStop % nStops + 1
+    while idx ~= untilStop do
+      stationGroups[#stationGroups+1] = lineData.stops[idx].stationGroup
+      idx = idx % nStops + 1
+    end
+  end
+  return stationGroups
+end
+
 return {
   getUniqueValidLines = getUniqueValidLines,
   calculateLineStopTermini = calculateLineStopTermini,
   calculateTimeUntilStop = calculateTimeUntilStop,
   findTerminalIndices = findTerminalIndices,
-  calculateSectionTimesAndLineDuration = calculateSectionTimesAndLineDuration
+  calculateSectionTimesAndLineDuration = calculateSectionTimesAndLineDuration,
+  getCallingAtStationGroups = getCallingAtStationGroups
 }

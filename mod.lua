@@ -69,6 +69,9 @@ display construction and it will manage its display updates when placed in game.
 
 				-- parameter name prefix (can help avoid conflicts with other mod params)
 				labelParamPrefix = "bh_digital_display_",
+
+				-- if true, includes a list of station names between this stop and the terminus, comma separated, in a param called arrival_<index>_callingAt
+				includeCalling = false
 			})
 
 			construction.registerConstruction("asset/bh_dynamic_arrivals_board/bh_digital_station_summary_display.con", {
@@ -78,6 +81,15 @@ display construction and it will manage its display updates when placed in game.
 			 absoluteArrivalTime = true,
 			 labelParamPrefix = "bh_summary_display_",
 		 })
+
+		 construction.registerConstruction("asset/bh_dynamic_arrivals_board/bh_digital_display_calling.con", {
+			singleTerminal = true,
+			clock = true,
+			maxArrivals = 1,
+			absoluteArrivalTime = true,
+			labelParamPrefix = "bh_digital_display_calling_",
+			includeCalling = true,
+		})
 		end,
  }
 end
