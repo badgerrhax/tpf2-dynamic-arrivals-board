@@ -213,7 +213,7 @@ local function formatArrivals(arrivals, time, includeCalling)
             for _, stationGroup in ipairs(callingStationGroups) do
               names[#names+1] = getStationGroupName(stationGroup)
             end
-            entry.callingAt = utils.joinString(names, ",")
+            entry.callingAt = utils.joinString(names, "@")
           end
         end
 

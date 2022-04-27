@@ -1,0 +1,36 @@
+function data()
+return {
+	boundingInfo = {
+		bbMax = { 0.1837263405323, 0.23061609268188, 4.5111017227173, },
+		bbMin = { -0.1601594388485, -0.11326964944601, 1.4289481639862, },
+	},
+	collider = {
+		params = {
+			halfExtents = { 0.1719428896904, 0.17194287478924, 1.5410767793655, },
+		},
+		transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, },
+		type = "BOX",
+	},
+	lods = {
+		{
+			node = {
+				children = {
+					{
+						materials = { "bh_dynamic_arrivals_board/metrolink_digital_display_baked.mtl", },
+						mesh = "bh_dynamic_arrivals_board/bh_metrolink_tall_display_pole_lod0.msh",
+						name = "bh_metrolink_tall_display_pole",
+						transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, },
+					},
+				},
+				name = "RootNode",
+				transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, },
+			},
+			static = false,
+			visibleFrom = 0,
+			visibleTo = 211.03604125977,
+		},
+	},
+	metadata = { },
+	version = 1,
+}
+end

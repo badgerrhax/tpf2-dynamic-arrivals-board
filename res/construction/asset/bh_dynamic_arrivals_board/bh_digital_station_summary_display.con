@@ -16,6 +16,12 @@ local function makeParams()
     defaultIndex = 1
   }
 
+  params[#params+1] = {
+    key = configKey("pole"),
+    name = _("Pole"),
+    values = { _("Off"), _("On") }
+  }
+
   utils.makeRotateParams(params, configKey)
   utils.makeOffsetParams(params, configKey)
 
@@ -44,6 +50,7 @@ function data()
       result.models = {}
 
       local align = params[configKey("snapTrackPlatformAlign")] or 1
+      local pole = params[configKey("pole")] == 1
 
       local rotate = utils.readRotateParams(params, configKey)
       if align ~= 0 then
@@ -56,9 +63,9 @@ function data()
         offset.z = offset.z + 0.54
       end
 
-      local model = "bh_dynamic_arrivals_board/bh_dynamic_tall_board.mdl"
       result.models[#result.models + 1] = {
-        id = model, transf = constructionutil.rotateTransf(params, transf.rotZYXTransl(rotate, offset))
+        id = "bh_dynamic_arrivals_board/bh_dynamic_tall_board.mdl",
+        transf = constructionutil.rotateTransf(params, transf.rotZYXTransl(rotate, offset))
       }
 
       local labelValues = {}
@@ -84,6 +91,13 @@ function data()
       result.labelText = {
         [#result.models-1] = labelValues
       }
+
+      if pole then
+        result.models[#result.models + 1] = {
+          id = "bh_dynamic_arrivals_board/bh_dynamic_tall_pole.mdl",
+          transf = constructionutil.rotateTransf(params, transf.rotZYXTransl(rotate, offset))
+        }
+      end
 
       result.terrainAlignmentLists = { { type = "EQUAL", faces = {} }}
       result.groundFaces = {}

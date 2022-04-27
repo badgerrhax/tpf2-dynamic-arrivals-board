@@ -16,6 +16,12 @@ local function makeParams()
     defaultIndex = 0
   }
 
+  params[#params+1] = {
+    key = configKey("pole"),
+    name = _("Pole"),
+    values = { _("Off"), _("On") }
+  }
+
   -- since the terminal placement logic is not perfect, provide a param to override the terminal this sign is linked to
   utils.makeTerminalOverrideParam(params, configKey)
 
@@ -32,7 +38,7 @@ function data()
     description = {
       name = _("Dynamic Arrivals Calling Board"),
       description = _("A digital display showing approaching trains to specified terminal, with calling info"),
-      icon = "ui/construction/asset/bh_dynamic_arrivals_board/bh_digital_summary_construction@2x.tga"
+      icon = "ui/construction/asset/bh_dynamic_arrivals_board/bh_digital_calling_construction@2x.tga"
     },
     availability = {},
     buildMode = "SINGLE",
@@ -47,6 +53,7 @@ function data()
       result.models = {}
 
       local align = params[configKey("snapTrackPlatformAlign")] or 1
+      local pole = params[configKey("pole")] == 1
 
       local rotate = utils.readRotateParams(params, configKey)
       if align ~= 0 then
@@ -59,9 +66,9 @@ function data()
         offset.z = offset.z + 0.54
       end
 
-      local model = "bh_dynamic_arrivals_board/bh_dynamic_tall_calling.mdl"
       result.models[#result.models + 1] = {
-        id = model, transf = constructionutil.rotateTransf(params, transf.rotZYXTransl(rotate, offset))
+        id = "bh_dynamic_arrivals_board/bh_dynamic_tall_calling.mdl", 
+        transf = constructionutil.rotateTransf(params, transf.rotZYXTransl(rotate, offset))
       }
 
       local labelValues = {}
@@ -78,7 +85,7 @@ function data()
 
       local calling = params[configKey("arrival_1_callingAt")]
       if calling then
-        local list = utils.splitString(calling, ",")
+        local list = utils.splitString(calling, "@")
         for i = 1, math.min(8, #list) do
           labelValues[i + 2] = list[i]
         end
@@ -90,6 +97,13 @@ function data()
       result.labelText = {
         [#result.models-1] = labelValues
       }
+
+      if pole then
+        result.models[#result.models + 1] = {
+          id = "bh_dynamic_arrivals_board/bh_dynamic_tall_pole.mdl", 
+          transf = constructionutil.rotateTransf(params, transf.rotZYXTransl(rotate, offset))
+        }
+      end
 
       result.terrainAlignmentLists = { { type = "EQUAL", faces = {} }}
       result.groundFaces = {}

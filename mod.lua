@@ -3,13 +3,14 @@ local construction = require "bh_dynamic_arrivals_board/bh_construction_hooks"
 function data()
 	return {
 		info = {
-			minorVersion = 8,
+			minorVersion = 9,
 			severityAdd = "WARNING",
 			severityRemove = "WARNING",
 			name = _("Dynamic Arrivals Board"),
 			description = [[
 [h1]Main Features[/h1]
 - [b]Single Terminal Arrivals Display[/b] - place it on a platform and it will automatically display the next arriving trains to that platform. Use the terminal param to force a platform if it sees the wrong one.
+- [b]Single Terminal "Calling at" Display[/b] - place it on a platform and it will display the next arriving train and the stops between here and the destination
 - [b]Station Departures Display[/b] - place within 50m of a station and it will display up to the next 8 trains and their destinations / platform / times
 
 [h1]Extra Configuration[/h1]
@@ -20,14 +21,13 @@ I wanted to try avoiding the need for a GUI but sometimes it is the simplest way
 - Allows you to delete the sign without having to pause
 
 [h1]Planned Features[/h1]
-- Single Terminal for one vehicle with list of "calling at" stations
 - Station Arrivals Display (showing origins instead of destinations)
 
 [h1]Known issues[/h1]
 - Line destination calculations may be wrong for some lines - it depends how they are defined. If you have lines that it gets wrong, please provide the list of stops and expected destinations. It may or may not be possible to automatically calculate - e.g. I don't think it'll ever work for "circular" lines without manual configuration
 
 [h1]Limitations[/h1]
-- The ETA calculations are based on previous arrival times and segment travel times - if the vehicle has not travelled the line at least once, this data will be inaccurate but will improve over time.
+- The ETA calculations are based on previous arrival times and segment travel times - if vehicles have not travelled the line at least once, this data will be inaccurate but will improve over time.
 
 [h1]Extensibility[/h1]
 This is designed to work as a base mod for other modders to create their own displays too. There's a construction registration API where you can tell it about your
@@ -75,21 +75,21 @@ display construction and it will manage its display updates when placed in game.
 			})
 
 			construction.registerConstruction("asset/bh_dynamic_arrivals_board/bh_digital_station_summary_display.con", {
-			 singleTerminal = false,
-			 clock = true,
-			 maxArrivals = 8,
-			 absoluteArrivalTime = true,
-			 labelParamPrefix = "bh_summary_display_",
-		 })
+				singleTerminal = false,
+				clock = true,
+				maxArrivals = 8,
+				absoluteArrivalTime = true,
+				labelParamPrefix = "bh_summary_display_",
+		 	})
 
-		 construction.registerConstruction("asset/bh_dynamic_arrivals_board/bh_digital_display_calling.con", {
-			singleTerminal = true,
-			clock = true,
-			maxArrivals = 1,
-			absoluteArrivalTime = true,
-			labelParamPrefix = "bh_digital_display_calling_",
-			includeCalling = true,
-		})
+			construction.registerConstruction("asset/bh_dynamic_arrivals_board/bh_digital_display_calling.con", {
+				singleTerminal = true,
+				clock = true,
+				maxArrivals = 1,
+				absoluteArrivalTime = true,
+				labelParamPrefix = "bh_digital_display_calling_",
+				includeCalling = true,
+			})
 		end,
  }
 end
